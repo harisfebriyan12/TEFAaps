@@ -115,11 +115,10 @@ const HomeScreen = () => {
       // If no payment methods found in Firebase, use default ones
       if (fetchedPaymentMethods.length === 0) {
         setPaymentMethods([
-          { id: 'qris', name: 'QRIS', type: 'qris', color: '#9333EA' },
-          { id: 'mandiri', name: 'BANK MANDIRI', accountNumber: '370273', accountHolder: 'HARIS FEBRIYAN', type: 'mandiri', color: '#1E40AF' },
-          { id: 'gopay', name: 'GoPay', type: 'gopay', color: '#00AA13' },
-          { id: 'ovo', name: 'OVO', type: 'ovo', color: '#4F46E5' },
-          { id: 'dana', name: 'DANA', type: 'dana', color: '#0284C7' }
+          { id: 'mandiri', name: 'BANK MANDIRI', accountNumber: '370273', accountHolder: 'HARIS FEBRIYAN', type: 'Mandiri', color: '#1E40AF' },
+          { id: 'gopay', name: 'GoPay',accountNumber: '30589477', accountHolder: 'HARIS FEBRIYAN', type: 'Gopay',  color: '#00AA13' },
+          { id: 'ovo', name: 'OVO', accountNumber: '081574623847', accountHolder: 'HARIS FEBRIYAN', type: 'Ovo', color: '#4F46E5' },
+          { id: 'dana', name: 'DANA',accountNumber: '0347305373', accountHolder: 'HARIS FEBRIYAN', type: 'Dana ',  color: '#0284C7' }
         ]);
       } else {
         setPaymentMethods(fetchedPaymentMethods);
@@ -132,7 +131,14 @@ const HomeScreen = () => {
       setRefreshing(false);
     }
   };
-
+  function getGreeting() {
+    let hour = new Date().getHours();
+    if (hour >= 4 && hour < 11) return 'Selamat Pagi';
+    if (hour >= 11 && hour < 15) return 'Selamat Siang';
+    if (hour >= 15 && hour < 18) return 'Selamat Sore';
+    return 'Selamat Malam';
+  }
+  
   // Function to determine payment method color based on type
   const getPaymentMethodColor = (type) => {
     switch(type) {
@@ -337,15 +343,21 @@ const HomeScreen = () => {
                   />
                 </TouchableOpacity>
               </Animated.View>
-              
+          
               <View style={styles.headerText}>
-                <Animated.Text entering={SlideInRight.delay(100).duration(500)} style={styles.greeting}>
-                  Selamat datang
-                </Animated.Text>
-                <Animated.Text entering={SlideInRight.delay(150).duration(500)} style={styles.username}>
-                  {user?.name || user?.email || 'Pengguna'}
-                </Animated.Text>
-              </View>
+    <Animated.Text
+      entering={SlideInRight.delay(100).duration(500)}
+      style={styles.greeting}
+    >
+      {getGreeting()}, selamat datang di
+    </Animated.Text>
+    <Animated.Text
+      entering={SlideInRight.delay(150).duration(500)}
+      style={styles.username}
+    >
+      {user?.name || user?.name || 'TEFA APLIKASI'}
+    </Animated.Text>
+  </View>
               
               <Animated.View entering={SlideInRight.delay(200).duration(500)} style={styles.headerActions}>
                 <TouchableOpacity 
