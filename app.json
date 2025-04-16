@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Tefa Apps",
+    "name": "Tefa",
     "slug": "tefa-apps",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -8,7 +8,7 @@
     "scheme": "tefa",
     "userInterfaceStyle": "automatic",
     "splash": {
-      "image": "./assets/images/splash.png",
+      "image": "./assets/images/icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#7C3AED"
     },
@@ -18,9 +18,7 @@
     "android": {
       "package": "com.anonymous.tefaapps"
     },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "1.0.0",
     "updates": {
       "url": "https://u.expo.dev/4d4de35c-a708-4cd0-85e2-eba2c9df251b"
     },

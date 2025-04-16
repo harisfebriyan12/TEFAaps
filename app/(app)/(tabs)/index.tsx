@@ -50,28 +50,68 @@ const HomeScreen = () => {
   const [isProcessing, setIsProcessing] = useState(false);
 
   const getPaymentIcon = (type) => {
-    switch(type) {
+    const lowerType = type.toLowerCase();
+    switch(lowerType) {
       case 'qris': return 'qrcode';
-      case 'bank': return 'building';
+      case 'bank': return 'university';
       case 'bca': return 'university';
       case 'mandiri': return 'university';
-      case 'gopay': return 'money-bill-wave';
+      case 'bri': return 'university';
+      case 'bni': return 'university';
+      case 'gopay': return 'mobile-alt';
       case 'ovo': return 'wallet';
-      case 'dana': return 'credit-card';
+      case 'dana': return 'wallet';
       case 'shopeepay': return 'shopping-bag';
+      case 'linkaja': return 'external-link-alt';
       default: return 'credit-card';
     }
   };
 
-  const serviceCategories = [
-    { id: 'game', name: 'Game', icon: 'gamepad', color: '#7C3AED' },
-    { id: 'tugas', name: 'Tugas', icon: 'book-open', color: '#10B981' },
-    { id: 'design', name: 'Design', icon: 'palette', color: '#EC4899' },
-    { id: 'coding', name: 'Coding', icon: 'code', color: '#F59E0B' },
-  ];
+  const getPaymentMethodColor = (type) => {
+    const lowerType = type.toLowerCase();
+    switch(lowerType) {
+      case 'qris': return '#9333EA';
+      case 'mandiri': return '#1E40AF';
+      case 'bca': return '#1E3A8A';
+      case 'bri': return '#1E3F20';
+      case 'bni': return '#8B0000';
+      case 'bank': return '#1E40AF';
+      case 'gopay': return '#00AA13';
+      case 'ovo': return '#4F46E5';
+      case 'dana': return '#0284C7';
+      case 'shopeepay': return '#EA4335';
+      case 'linkaja': return '#F59E0B';
+      default: return '#4F46E5';
+    }
+  };
+
+  const getPaymentMethodName = (type) => {
+    const lowerType = type.toLowerCase();
+    switch(lowerType) {
+      case 'mandiri': return 'Bank Mandiri';
+      case 'bca': return 'Bank BCA';
+      case 'bri': return 'Bank BRI';
+      case 'bni': return 'Bank BNI';
+      case 'gopay': return 'Gopay';
+      case 'ovo': return 'OVO';
+      case 'dana': return 'DANA';
+      case 'shopeepay': return 'ShopeePay';
+      case 'linkaja': return 'LinkAja';
+      default: return type;
+    }
+  };
+
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour >= 4 && hour < 11) return 'Selamat Pagi';
+    if (hour >= 11 && hour < 15) return 'Selamat Siang';
+    if (hour >= 15 && hour < 18) return 'Selamat Sore';
+    return 'Selamat Malam';
+  };
 
   const fetchData = async () => {
     try {
+      setLoading(true);
       const userQuery = query(collection(db, 'users'), where('uid', '==', auth.currentUser?.uid));
       const userSnapshot = await getDocs(userQuery);
       if (!userSnapshot.empty) setUser(userSnapshot.docs[0].data());
@@ -83,7 +123,7 @@ const HomeScreen = () => {
         where('validUntil', '>=', new Date())
       );
       const newsQuery = query(collection(db, 'news'));
-      const paymentsQuery = query(collection(db, 'payments'));
+      const paymentsQuery = query(collection(db, 'payments'), where('isActive', '==', true));
 
       const [prodSnap, promoSnap, newsSnap, paymentsSnap] = await Promise.all([
         getDocs(prodQuery),
@@ -99,58 +139,26 @@ const HomeScreen = () => {
       // Process payment methods from Firebase
       const fetchedPaymentMethods = paymentsSnap.docs.map(doc => {
         const data = doc.data();
+        const type = data.type?.toLowerCase() || 'bank';
         return {
           id: doc.id,
-          name: data.namabank || data.name || '',
-          accountNumber: data.nomorakun || '',
-          accountHolder: data.pemegangAkun || '',
-          description: data.keterangan || '',
-          type: data.namabank?.toLowerCase() || 'bank',
-          color: getPaymentMethodColor(data.namabank?.toLowerCase() || 'bank'),
-          imageUrl: data.imageUrl || null,
-          createdAt: data.dibuatPada || null
+          name: getPaymentMethodName(data.type || data.name || 'Bank'),
+          accountNumber: data.accountNumber || data.nomorRekening || '',
+          accountHolder: data.accountHolder || data.pemilikRekening || '',
+          description: data.description || data.keterangan || '',
+          type: type,
+          color: getPaymentMethodColor(type),
+          createdAt: data.createdAt || null
         };
       });
       
-      // If no payment methods found in Firebase, use default ones
-      if (fetchedPaymentMethods.length === 0) {
-        setPaymentMethods([
-          { id: 'mandiri', name: 'BANK MANDIRI', accountNumber: '370273', accountHolder: 'HARIS FEBRIYAN', type: 'Mandiri', color: '#1E40AF' },
-          { id: 'gopay', name: 'GoPay',accountNumber: '30589477', accountHolder: 'HARIS FEBRIYAN', type: 'Gopay',  color: '#00AA13' },
-          { id: 'ovo', name: 'OVO', accountNumber: '081574623847', accountHolder: 'HARIS FEBRIYAN', type: 'Ovo', color: '#4F46E5' },
-          { id: 'dana', name: 'DANA',accountNumber: '0347305373', accountHolder: 'HARIS FEBRIYAN', type: 'Dana ',  color: '#0284C7' }
-        ]);
-      } else {
-        setPaymentMethods(fetchedPaymentMethods);
-      }
+      setPaymentMethods(fetchedPaymentMethods);
     } catch (error) {
       console.error('Fetch error:', error);
       Alert.alert('Error', 'Gagal memuat data. Silakan coba lagi.');
     } finally {
       setLoading(false);
       setRefreshing(false);
-    }
-  };
-  function getGreeting() {
-    let hour = new Date().getHours();
-    if (hour >= 4 && hour < 11) return 'Selamat Pagi';
-    if (hour >= 11 && hour < 15) return 'Selamat Siang';
-    if (hour >= 15 && hour < 18) return 'Selamat Sore';
-    return 'Selamat Malam';
-  }
-  
-  // Function to determine payment method color based on type
-  const getPaymentMethodColor = (type) => {
-    switch(type) {
-      case 'qris': return '#9333EA';
-      case 'mandiri': return '#1E40AF';
-      case 'bca': return '#1E40AF';
-      case 'bank': return '#1E40AF';
-      case 'gopay': return '#00AA13';
-      case 'ovo': return '#4F46E5';
-      case 'dana': return '#0284C7';
-      case 'shopeepay': return '#EA4335';
-      default: return '#4F46E5';
     }
   };
 
@@ -166,28 +174,26 @@ const HomeScreen = () => {
     const unsubNews = onSnapshot(collection(db, 'news'), snap => {
       setNews(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
-    
-    // Listen for payment methods updates
-    const unsubPayments = onSnapshot(collection(db, 'payments'), snap => {
-      const fetchedPaymentMethods = snap.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          name: data.namabank || data.name || '',
-          accountNumber: data.nomorakun || '',
-          accountHolder: data.pemegangAkun || '',
-          description: data.keterangan || '',
-          type: data.namabank?.toLowerCase() || 'bank',
-          color: getPaymentMethodColor(data.namabank?.toLowerCase() || 'bank'),
-          imageUrl: data.imageUrl || null,
-          createdAt: data.dibuatPada || null
-        };
-      });
-      
-      if (fetchedPaymentMethods.length > 0) {
+    const unsubPayments = onSnapshot(
+      query(collection(db, 'payments'), where('isActive', '==', true)),
+      snap => {
+        const fetchedPaymentMethods = snap.docs.map(doc => {
+          const data = doc.data();
+          const type = data.type?.toLowerCase() || 'bank';
+          return {
+            id: doc.id,
+            name: getPaymentMethodName(data.type || data.name || 'Bank'),
+            accountNumber: data.accountNumber || data.nomorRekening || '',
+            accountHolder: data.accountHolder || data.pemilikRekening || '',
+            description: data.description || data.keterangan || '',
+            type: type,
+            color: getPaymentMethodColor(type),
+            createdAt: data.createdAt || null
+          };
+        });
         setPaymentMethods(fetchedPaymentMethods);
       }
-    });
+    );
 
     fetchData();
 
@@ -209,7 +215,6 @@ const HomeScreen = () => {
     Haptics.selectionAsync();
     setSelectedProduct(product);
     setFormVisible(true);
-    // Reset form data when selecting a new product
     setFormData({
       username: '',
       password: '',
@@ -286,20 +291,40 @@ const HomeScreen = () => {
     setSelectedPaymentMethod(null);
   };
 
-  // Helper function to lighten colors
-  const lightenColor = (color, percent) => {
-    const num = parseInt(color.replace("#", ""), 16);
-    const amt = Math.round(2.55 * percent);
-    const R = (num >> 16) + amt;
-    const G = (num >> 8 & 0x00FF) + amt;
-    const B = (num & 0x0000FF) + amt;
-    return `#${(
-      0x1000000 +
-      (R < 255 ? (R < 1 ? 0 : R) : 255) * 0x10000 +
-      (G < 255 ? (G < 1 ? 0 : G) : 255) * 0x100 +
-      (B < 255 ? (B < 1 ? 0 : B) : 255)
-    ).toString(16).slice(1)}`;
-  };
+  const PaymentMethodItem = ({ method, isSelected, onPress }) => (
+    <TouchableOpacity
+      style={[
+        styles.paymentMethodItem,
+        isSelected && styles.paymentMethodItemSelected,
+        { borderColor: isSelected ? method.color : '#E5E7EB' }
+      ]}
+      onPress={onPress}
+    >
+      <View style={[styles.paymentMethodIconContainer, { backgroundColor: method.color }]}>
+        <FontAwesome5 
+          name={getPaymentIcon(method.type)} 
+          size={20} 
+          color="white" 
+        />
+      </View>
+      <View style={styles.paymentMethodInfo}>
+        <Text style={styles.paymentMethodName}>{method.name}</Text>
+        <Text style={styles.paymentMethodNumber}>
+          {method.accountNumber} • {method.accountHolder}
+        </Text>
+        {method.description && (
+          <Text style={styles.paymentMethodDescription}>{method.description}</Text>
+        )}
+      </View>
+      <View style={styles.paymentMethodRadio}>
+        {isSelected ? (
+          <Ionicons name="radio-button-on" size={24} color={method.color} />
+        ) : (
+          <Ionicons name="radio-button-off" size={24} color="#9CA3AF" />
+        )}
+      </View>
+    </TouchableOpacity>
+  );
 
   if (loading) {
     return (
@@ -338,35 +363,27 @@ const HomeScreen = () => {
               <Animated.View entering={SlideInLeft.duration(500)}>
                 <TouchableOpacity onPress={() => router.push('/profile')}>
                   <Image
-                    source={user?.photoURL ? { uri: user.photoURL } : require('../../../assets/images/avatar-default.png')}
+                    source={user?.photoURL ? { uri: user.photoURL } : require('../../../assets/images/icon.png')}
                     style={styles.profileImage}
                   />
                 </TouchableOpacity>
               </Animated.View>
           
               <View style={styles.headerText}>
-    <Animated.Text
-      entering={SlideInRight.delay(100).duration(500)}
-      style={styles.greeting}
-    >
-      {getGreeting()}, selamat datang di
-    </Animated.Text>
-    <Animated.Text
-      entering={SlideInRight.delay(150).duration(500)}
-      style={styles.username}
-    >
-      {user?.name || user?.name || 'TEFA APLIKASI'}
-    </Animated.Text>
-  </View>
-              
-              <Animated.View entering={SlideInRight.delay(200).duration(500)} style={styles.headerActions}>
-                <TouchableOpacity 
-                  onPress={() => router.push('/notifications')}
+                <Animated.Text
+                  entering={SlideInRight.delay(100).duration(500)}
+                  style={styles.greeting}
                 >
-                </TouchableOpacity>
-              </Animated.View>
+                  {getGreeting()}, {user?.name || 'Pengguna'}
+                </Animated.Text>
+                <Animated.Text
+                  entering={SlideInRight.delay(150).duration(500)}
+                  style={styles.welcomeText}
+                >
+                  Selamat datang di TEFA APLIKASI
+                </Animated.Text>
+              </View>
             </View>
-            
           </LinearGradient>
         </Animated.View>
 
@@ -441,6 +458,16 @@ const HomeScreen = () => {
               <MaterialIcons name="star" size={20} color="#4F46E5" />
               <Text style={styles.sectionTitle}>Layanan Populer</Text>
             </View>
+            <TouchableOpacity 
+              style={styles.seeAllButton}
+              onPress={() => {
+                Haptics.selectionAsync();
+                router.push('/products');
+              }}
+            >
+              <Text style={styles.seeAll}>Lihat Semua</Text>
+              <AntDesign name="right" size={14} color="#4F46E5" />
+            </TouchableOpacity>
           </View>
           
           {products.length > 0 ? (
@@ -491,13 +518,23 @@ const HomeScreen = () => {
           )}
         </Animated.View>
 
-        {/* News Section - Fixed version */}
+        {/* News Section */}
         <Animated.View entering={FadeInDown.duration(600).delay(400)} style={styles.section}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleContainer}>
               <MaterialIcons name="article" size={20} color="#4F46E5" />
               <Text style={styles.sectionTitle}>Berita Terbaru</Text>
             </View>
+            <TouchableOpacity 
+              style={styles.seeAllButton}
+              onPress={() => {
+                Haptics.selectionAsync();
+                router.push('/news');
+              }}
+            >
+              <Text style={styles.seeAll}>Lihat Semua</Text>
+              <AntDesign name="right" size={14} color="#4F46E5" />
+            </TouchableOpacity>
           </View>
 
           {news.slice(0, 3).map((item, index) => {
@@ -589,29 +626,29 @@ const HomeScreen = () => {
               </View>
             )}
             
-            <ScrollView style={styles.formContainer}>
-              <Text style={styles.formLabel}>Masukkan nama Lengkap*</Text>
+            <ScrollView style={styles.formContainer} showsVerticalScrollIndicator={false}>
+              <Text style={styles.formLabel}>Nama Lengkap*</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="Nama Lengkap"
+                placeholder="Masukkan nama lengkap"
                 placeholderTextColor="#9CA3AF"
                 value={formData.username}
                 onChangeText={(text) => setFormData({...formData, username: text})}
               />
               
-              <Text style={styles.formLabel}>Jenis Tugas</Text>
+              <Text style={styles.formLabel}>Detail Tugas*</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="Masukkan Jenis Tugas"
+                placeholder="Masukkan detail tugas"
                 placeholderTextColor="#9CA3AF"
                 value={formData.password}
                 onChangeText={(text) => setFormData({...formData, password: text})}
               />
               
-              <Text style={styles.formLabel}>Nomor WhatsApp *</Text>
+              <Text style={styles.formLabel}>Nomor WhatsApp*</Text>
               <TextInput
                 style={styles.formInput}
-                placeholder="Masukkan nomor WhatsApp"
+                placeholder="Contoh: 081234567890"
                 placeholderTextColor="#9CA3AF"
                 keyboardType="phone-pad"
                 value={formData.contactNumber}
@@ -675,7 +712,7 @@ const HomeScreen = () => {
                   <Text style={styles.paymentSummaryValue}>{selectedProduct.name}</Text>
                 </View>
                 <View style={styles.paymentSummaryRow}>
-                  <Text style={styles.paymentSummaryLabel}>Username</Text>
+                  <Text style={styles.paymentSummaryLabel}>Nama</Text>
                   <Text style={styles.paymentSummaryValue}>{formData.username}</Text>
                 </View>
                 <View style={styles.paymentSummaryDivider} />
@@ -698,58 +735,35 @@ const HomeScreen = () => {
               </View>
             )}
             
-            <ScrollView style={styles.paymentMethodList}>
-              {paymentMethods.map((method) => (
-                <TouchableOpacity
+            <ScrollView 
+              style={styles.paymentMethodList}
+              contentContainerStyle={styles.paymentMethodListContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <Text style={styles.paymentMethodSectionTitle}>Transfer Bank</Text>
+              {paymentMethods.filter(m => ['bank', 'mandiri', 'bca', 'bri', 'bni'].includes(m.type.toLowerCase())).map((method) => (
+                <PaymentMethodItem
                   key={method.id}
-                  style={[
-                    styles.paymentMethodItem,
-                    selectedPaymentMethod === method.id && styles.paymentMethodItemSelected
-                  ]}
+                  method={method}
+                  isSelected={selectedPaymentMethod === method.id}
                   onPress={() => {
                     Haptics.selectionAsync();
                     setSelectedPaymentMethod(method.id);
                   }}
-                >
-                  {method.imageUrl ? (
-                    <Image 
-                      source={{ uri: method.imageUrl }} 
-                      style={styles.paymentMethodImage} 
-                      resizeMode="contain"
-                    />
-                  ) : (
-                    <LinearGradient
-                      colors={[method.color, lightenColor(method.color, 20)]}
-                      style={styles.paymentMethodIcon}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                    >
-                      <FontAwesome5 
-                        name={getPaymentIcon(method.type)} 
-                        size={20} 
-                        color="white" 
-                      />
-                    </LinearGradient>
-                  )}
-                  <View style={styles.paymentMethodInfo}>
-                    <Text style={styles.paymentMethodName}>{method.name}</Text>
-                    {method.accountNumber && (
-                      <Text style={styles.paymentMethodNumber}>
-                        {method.accountNumber} a.n {method.accountHolder}
-                      </Text>
-                    )}
-                    {method.description && (
-                      <Text style={styles.paymentMethodDescription}>{method.description}</Text>
-                    )}
-                  </View>
-                  <View style={styles.paymentMethodRadio}>
-                    {selectedPaymentMethod === method.id ? (
-                      <Ionicons name="radio-button-on" size={24} color="#4F46E5" />
-                    ) : (
-                      <Ionicons name="radio-button-off" size={24} color="#9CA3AF" />
-                    )}
-                  </View>
-                </TouchableOpacity>
+                />
+              ))}
+              
+              <Text style={styles.paymentMethodSectionTitle}>E-Wallet</Text>
+              {paymentMethods.filter(m => ['gopay', 'ovo', 'dana', 'shopeepay', 'linkaja'].includes(m.type.toLowerCase())).map((method) => (
+                <PaymentMethodItem
+                  key={method.id}
+                  method={method}
+                  isSelected={selectedPaymentMethod === method.id}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setSelectedPaymentMethod(method.id);
+                  }}
+                />
               ))}
             </ScrollView>
             
@@ -757,7 +771,8 @@ const HomeScreen = () => {
               <TouchableOpacity
                 style={[
                   styles.paymentSubmitButton,
-                  !selectedPaymentMethod && styles.paymentSubmitButtonDisabled
+                  !selectedPaymentMethod && styles.paymentSubmitButtonDisabled,
+                  { backgroundColor: selectedPaymentMethod ? paymentMethods.find(m => m.id === selectedPaymentMethod)?.color || '#4F46E5' : '#9CA3AF' }
                 ]}
                 onPress={handlePaymentSubmit}
                 disabled={!selectedPaymentMethod || isProcessing}
@@ -887,15 +902,11 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.8)',
     fontSize: 14,
   },
-  username: {
+  welcomeText: {
     color: 'white',
     fontSize: 18,
     fontWeight: '600',
     marginTop: 4,
-  },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
   },
   section: {
     marginTop: 24,
@@ -981,10 +992,6 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'space-between',
   },
-  serviceGridItem: {
-    width: '48%',
-    marginBottom: 16,
-  },
   serviceCard: {
     backgroundColor: 'white',
     borderRadius: 12,
@@ -1051,9 +1058,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  newsContainer: {
-    marginTop: 8,
-  },
   newsCard: {
     height: 180,
     borderRadius: 12,
@@ -1085,24 +1089,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 8,
   },
-  newsFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  newsDate: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 12,
-  },
-  readMore: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  newsDescription: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 14,
+    lineHeight: 20,
   },
   readMoreText: {
     color: '#4F46E5',
     fontSize: 12,
     fontWeight: '600',
-    marginRight: 4,
+    marginTop: 8,
   },
   emptyState: {
     backgroundColor: 'white',
@@ -1184,6 +1180,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#374151',
     marginBottom: 8,
+    fontWeight: '500',
   },
   formInput: {
     backgroundColor: '#F9FAFB',
@@ -1193,6 +1190,7 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 16,
     color: '#111827',
+    fontSize: 14,
   },
   formTextarea: {
     height: 100,
@@ -1255,57 +1253,61 @@ const styles = StyleSheet.create({
     color: '#4F46E5',
     fontWeight: '700',
   },
-  paymentMethodList: {
-    padding: 20,
-    maxHeight: 300,
-  },
   paymentMethodItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
+    padding: 16,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
+    borderRadius: 12,
     marginBottom: 12,
+    backgroundColor: 'white',
   },
   paymentMethodItemSelected: {
-    borderColor: '#4F46E5',
     backgroundColor: '#F5F3FF',
   },
-  paymentMethodIcon: {
+  paymentMethodIconContainer: {
     width: 40,
     height: 40,
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  paymentMethodImage: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    marginRight: 12,
   },
   paymentMethodInfo: {
     flex: 1,
-    marginLeft: 12,
   },
   paymentMethodName: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
     color: '#111827',
+    marginBottom: 2,
   },
   paymentMethodNumber: {
-    fontSize: 12,
+    fontSize: 14,
     color: '#6B7280',
-    marginTop: 2,
   },
   paymentMethodDescription: {
     fontSize: 12,
-    color: '#6B7280',
-    marginTop: 2,
-    fontStyle: 'italic',
+    color: '#9CA3AF',
+    marginTop: 4,
   },
   paymentMethodRadio: {
     marginLeft: 8,
+  },
+  paymentMethodSectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginTop: 16,
+    marginBottom: 12,
+    marginLeft: 4,
+  },
+  paymentMethodList: {
+    flex: 1,
+  },
+  paymentMethodListContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
   },
   paymentButtonContainer: {
     padding: 20,
@@ -1313,13 +1315,13 @@ const styles = StyleSheet.create({
     borderTopColor: '#F3F4F6',
   },
   paymentSubmitButton: {
-    backgroundColor: '#4F46E5',
-    borderRadius: 8,
+    borderRadius: 12,
     padding: 16,
     alignItems: 'center',
+    elevation: 2,
   },
   paymentSubmitButtonDisabled: {
-    backgroundColor: '#9CA3AF',
+    opacity: 0.7,
   },
   paymentSubmitButtonText: {
     color: 'white',

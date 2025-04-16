@@ -12,12 +12,13 @@ import {
   Alert,
   Animated,
   Easing,
+  Image,
 } from 'react-native';
 import { Link, router } from 'expo-router';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
-import { Mail, Lock, User, ArrowRight, Eye, EyeOff, Key, LogIn } from 'lucide-react-native';
+import { Mail, Lock, User, ArrowRight, Eye, EyeOff, Key } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Animatable from 'react-native-animatable';
 
@@ -25,25 +26,15 @@ const Register = () => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [adminCode, setAdminCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [shakeAnim] = useState(new Animated.Value(0));
 
-  const ADMIN_SECRET_CODE = 'ADMIN123'; // (Di aplikasi nyata, simpan di environment)
-
   const handleRegister = useCallback(async () => {
     setError('');
     if (!name || !email || !password) {
       setError('Harap isi semua kolom!');
-      triggerShake();
-      return;
-    }
-
-    if (isAdmin && adminCode !== ADMIN_SECRET_CODE) {
-      setError('Kode admin salah!');
       triggerShake();
       return;
     }
@@ -54,7 +45,7 @@ const Register = () => {
       await setDoc(doc(db, 'users', user.uid), {
         name,
         email,
-        role: isAdmin ? 'admin' : 'user',
+        role: 'user',
         createdAt: new Date().toISOString(),
       });
       Alert.alert('Sukses!', 'Akun berhasil dibuat. Silakan masuk.');
@@ -65,7 +56,7 @@ const Register = () => {
     } finally {
       setLoading(false);
     }
-  }, [name, email, password, isAdmin, adminCode]);
+  }, [name, email, password]);
 
   // Animasi error shake
   const triggerShake = () => {
@@ -83,9 +74,6 @@ const Register = () => {
 
   return (
     <ImageBackground
-      source={{
-        uri: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1470&q=80',
-      }}
       style={styles.background}
       blurRadius={3}
     >
@@ -99,9 +87,11 @@ const Register = () => {
         >
           <Animated.View style={[styles.content, shakeStyle]}>
             <Animatable.View animation="fadeInDown" duration={1000} style={styles.logoContainer}>
-              <View style={styles.logoCircle}>
-                <User size={28} color="#fff" />
-              </View>
+              <Image 
+                source={require('../../assets/images/icon.png')}
+                style={styles.logo}
+                resizeMode="contain"
+              />
               <Text style={styles.title}>Daftar Akun Baru</Text>
               <Text style={styles.subtitle}>Bergabung dengan komunitas kami</Text>
             </Animatable.View>
@@ -159,31 +149,6 @@ const Register = () => {
                     <Eye size={20} color="#A78BFA" />
                   )}
                 </TouchableOpacity>
-              </View>
-
-              <View style={styles.adminSection}>
-                <TouchableOpacity
-                  onPress={() => setIsAdmin(!isAdmin)}
-                  style={styles.checkboxContainer}
-                >
-                  <View style={[styles.checkbox, isAdmin && styles.checkboxChecked]}>
-                    {isAdmin && <View style={styles.checkboxInner} />}
-                  </View>
-                  <Text style={styles.checkboxLabel}>Daftar sebagai Admin</Text>
-                </TouchableOpacity>
-
-                {isAdmin && (
-                  <Animatable.View animation="fadeIn" duration={500} style={styles.adminCodeBox}>
-                    <TextInput
-                      style={styles.adminInput}
-                      placeholder="Masukkan Kode Admin"
-                      placeholderTextColor="#A1A1AA"
-                      value={adminCode}
-                      onChangeText={setAdminCode}
-                      secureTextEntry
-                    />
-                  </Animatable.View>
-                )}
               </View>
 
               <TouchableOpacity onPress={handleRegister} disabled={loading} activeOpacity={0.8}>
@@ -247,17 +212,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 25,
   },
-  logoCircle: {
-    backgroundColor: 'rgba(124, 58, 237, 0.2)',
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: 'rgba(124, 58, 237, 0.5)',
+  logo: {
+    width: 80,
+    height: 80,
     marginBottom: 15,
+    borderRadius: 40, // setengah dari 80
+    borderWidth: 2,
+    borderColor: '#A78BFA', // opsional: tambahkan garis pinggir ungu biar elegan
+    backgroundColor: '#fff', // opsional: biar kalau PNG transparan tetap kelihatan bagus
   },
+  
   title: {
     fontFamily: 'Poppins_700Bold',
     fontSize: 24,
@@ -292,50 +256,6 @@ const styles = StyleSheet.create({
   },
   eyeButton: {
     padding: 5,
-  },
-  adminSection: {
-    marginVertical: 10,
-  },
-  checkboxContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: '#7C3AED',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  checkboxChecked: {
-    backgroundColor: '#7C3AED',
-  },
-  checkboxInner: {
-    width: 10,
-    height: 10,
-    backgroundColor: '#fff',
-    borderRadius: 2,
-  },
-  checkboxLabel: {
-    color: '#E5E7EB',
-    fontFamily: 'Inter_500Medium',
-    fontSize: 14,
-  },
-  adminCodeBox: {
-    marginTop: 10,
-    backgroundColor: 'rgba(63, 63, 70, 0.7)',
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(113, 113, 122, 0.3)',
-  },
-  adminInput: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 14,
-    color: '#FFFFFF',
   },
   registerButton: {
     padding: 16,

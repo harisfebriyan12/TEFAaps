@@ -35,16 +35,18 @@ const generateOrderReceipt = async (order) => {
       // Otherwise just show the product name
       itemsHtml = `
         <tr>
-          <td class="item-name">${order.productName}</td>
-          <td class="item-price">Rp ${order.amount?.toLocaleString('id-ID')}</td>
+          <td class="item-name">${order.productName || '-'}</td>
+          <td class="item-price">Rp ${order.amount?.toLocaleString('id-ID') || '0'}</td>
         </tr>
       `;
     }
 
     // Generate order number with leading zeros
-    const formattedOrderNumber = order.orderNumber ? `#${order.orderNumber.padStart(8, '0')}` : '#00000001';
+    const formattedOrderNumber = order.orderNumber ? 
+      `#${order.orderNumber.padStart(8, '0')}` : 
+      '#00000001';
 
-    // Get payment status
+    // Fixed payment status based on order status
     const paymentStatus = order.status === 'completed' || order.status === 'processing' ? 'LUNAS' : 'BELUM LUNAS';
     const statusColor = paymentStatus === 'LUNAS' ? '#10B981' : '#EF4444';
     
@@ -55,7 +57,7 @@ const generateOrderReceipt = async (order) => {
         <head>
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Struk Pembayaran - KIOS DIGITAL</title>
+          <title>Struk Pembayaran - TEFA APPS</title>
           <style>
             @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
             
@@ -82,7 +84,7 @@ const generateOrderReceipt = async (order) => {
             }
             
             .receipt-header {
-              background-color: #2E7D32;
+              background-color:rgb(5, 78, 121);
               padding: 30px;
               color: white;
               position: relative;
@@ -118,8 +120,8 @@ const generateOrderReceipt = async (order) => {
             }
             
             .logo-icon:before {
-              content: 'K';
-              color: #2E7D32;
+              content: 'T';
+              color:rgb(0, 24, 158);
               font-size: 30px;
               font-weight: bold;
             }
@@ -327,7 +329,7 @@ const generateOrderReceipt = async (order) => {
             }
             
             .receipt-footer {
-              background-color: #2E7D32;
+              background-color:rgb(45, 35, 190);
               padding: 20px;
               text-align: center;
               color: white;
@@ -352,7 +354,7 @@ const generateOrderReceipt = async (order) => {
               <div class="logo-container">
                 <div class="logo-icon"></div>
                 <div>
-                  <div class="brand-name">KIOS DIGITAL</div>
+                  <div class="brand-name">TEFA APPS</div>
                 </div>
               </div>
               <div class="receipt-title">Bukti Transaksi</div>
@@ -403,7 +405,7 @@ const generateOrderReceipt = async (order) => {
                   ${itemsHtml}
                   <tr class="total-row">
                     <td>Total Pembayaran</td>
-                    <td class="item-price">Rp ${order.amount?.toLocaleString('id-ID')}</td>
+                    <td class="item-price">Rp ${order.amount?.toLocaleString('id-ID') || '0'}</td>
                   </tr>
                 </tbody>
               </table>
@@ -455,7 +457,7 @@ const generateOrderReceipt = async (order) => {
             </div>
             
             <div class="receipt-footer">
-              Dokumen ini adalah bukti transaksi yang sah dari KIOS DIGITAL
+              Dokumen ini adalah bukti transaksi yang sah dari TEFA 
             </div>
           </div>
         </body>
@@ -473,7 +475,13 @@ const generateOrderReceipt = async (order) => {
     // Save and share PDF with a better name
     const pdfName = `Struk_${order.orderNumber || 'Transaksi'}_KiosDigital.pdf`;
     const newUri = `${FileSystem.documentDirectory}${pdfName}`;
-    await FileSystem.copyAsync({ from: uri, to: newUri });
+    
+    try {
+      await FileSystem.moveAsync({ from: uri, to: newUri });
+    } catch (error) {
+      // If move fails, try copying
+      await FileSystem.copyAsync({ from: uri, to: newUri });
+    }
     
     if (await Sharing.isAvailableAsync()) {
       await Sharing.shareAsync(newUri, {
@@ -496,9 +504,16 @@ const OrderDetailScreen = () => {
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [generatingReceipt, setGeneratingReceipt] = useState(false);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     const fetchOrder = async () => {
+      if (!id) {
+        setError('ID pesanan tidak valid');
+        setLoading(false);
+        return;
+      }
+      
       try {
         const docRef = doc(db, 'orders', id);
         const docSnap = await getDoc(docRef);
@@ -506,10 +521,11 @@ const OrderDetailScreen = () => {
         if (docSnap.exists()) {
           setOrder({ id: docSnap.id, ...docSnap.data() });
         } else {
-          console.log('No such document!');
+          setError('Pesanan tidak ditemukan');
         }
       } catch (error) {
         console.error('Error getting order:', error);
+        setError('Gagal memuat data pesanan');
       } finally {
         setLoading(false);
       }
@@ -518,16 +534,23 @@ const OrderDetailScreen = () => {
     fetchOrder();
   }, [id]);
 
-  // Modified payment status logic: only 'processing' and 'completed' are considered paid
+  // Fixed payment status logic to match order status
   const getPaymentStatus = (status) => {
     return status === 'completed' || status === 'processing' ? 'paid' : 'unpaid';
   };
 
   const handleWhatsAppContact = () => {
     const phoneNumber = '6281574623974'; // Admin WhatsApp number
-    const message = `Halo Admin, saya ingin konfirmasi pesanan dengan nomor: ${order.orderNumber}`;
+    const message = `Halo Admin, saya ingin konfirmasi pesanan dengan nomor: ${order?.orderNumber || 'tidak tersedia'}`;
     const url = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
-    Linking.openURL(url).catch(() => {
+    
+    Linking.canOpenURL(url).then(supported => {
+      if (supported) {
+        Linking.openURL(url);
+      } else {
+        Alert.alert('Error', 'WhatsApp tidak terinstall di perangkat Anda');
+      }
+    }).catch(() => {
       Alert.alert('Error', 'Tidak dapat membuka WhatsApp');
     });
   };
@@ -535,21 +558,31 @@ const OrderDetailScreen = () => {
   const formatDate = (timestamp) => {
     if (!timestamp?.seconds) return '-';
     
-    return new Date(timestamp.seconds * 1000).toLocaleDateString('id-ID', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    try {
+      return new Date(timestamp.seconds * 1000).toLocaleDateString('id-ID', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return '-';
+    }
   };
 
   const handleGenerateReceipt = async () => {
+    if (!order) {
+      Alert.alert('Error', 'Data pesanan tidak tersedia');
+      return;
+    }
+    
     try {
       setGeneratingReceipt(true);
       await generateOrderReceipt(order);
     } catch (error) {
-      Alert.alert('Error', 'Gagal membuat struk: ' + error.message);
+      Alert.alert('Error', 'Gagal membuat struk: ' + (error.message || 'Terjadi kesalahan'));
     } finally {
       setGeneratingReceipt(false);
     }
@@ -563,11 +596,17 @@ const OrderDetailScreen = () => {
     );
   }
 
-  if (!order) {
+  if (error || !order) {
     return (
       <View style={styles.emptyContainer}>
         <MaterialIcons name="error-outline" size={48} color="#9CA3AF" />
-        <Text style={styles.emptyText}>Pesanan tidak ditemukan</Text>
+        <Text style={styles.emptyText}>{error || 'Pesanan tidak ditemukan'}</Text>
+        <TouchableOpacity 
+          style={styles.backButtonEmpty}
+          onPress={() => router.back()}
+        >
+          <Text style={styles.backButtonEmptyText}>Kembali</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -592,7 +631,7 @@ const OrderDetailScreen = () => {
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <AntDesign name="arrowleft" size={24} color="white" />
+          <AntDesign name="arrowleft" size={24} color="#333" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Detail Pesanan</Text>
         <TouchableOpacity 
@@ -601,9 +640,9 @@ const OrderDetailScreen = () => {
           style={styles.receiptButton}
         >
           {generatingReceipt ? (
-            <ActivityIndicator size="small" color="white" />
+            <ActivityIndicator size="small" color="#fff" />
           ) : (
-            <Feather name="file-text" size={20} color="white" />
+            <Feather name="file-text" size={20} color="#fff" />
           )}
         </TouchableOpacity>
       </View>
@@ -612,14 +651,14 @@ const OrderDetailScreen = () => {
         <View style={styles.orderHeader}>
           <View>
             <Text style={styles.orderNumberLabel}>Nomor Pesanan</Text>
-            <Text style={styles.orderNumber}>{order.orderNumber}</Text>
+            <Text style={styles.orderNumber}>{order.orderNumber || '-'}</Text>
           </View>
           <View style={[
             styles.statusBadge, 
             { backgroundColor: isPaid ? '#ECFDF5' : '#FEF2F2' }
           ]}>
             <Text style={[styles.statusText, { color: isPaid ? '#10B981' : '#EF4444' }]}>
-              {isPaid ? 'LUNAS' : 'BELUM BAYAR'}
+              {isPaid ? 'LUNAS' : 'BELUM LUNAS'}
             </Text>
           </View>
         </View>
@@ -650,7 +689,7 @@ const OrderDetailScreen = () => {
           <View style={styles.infoCard}>
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>Nama Layanan</Text>
-              <Text style={styles.detailValue}>{order.productName}</Text>
+              <Text style={styles.detailValue}>{order.productName || '-'}</Text>
             </View>
             
             <View style={styles.detailRow}>
@@ -658,17 +697,21 @@ const OrderDetailScreen = () => {
               <Text style={styles.detailValue}>{order.orderDetails?.username || '-'}</Text>
             </View>
             
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Jenis Tugas</Text>
-              <Text style={styles.detailValue}>{order.orderDetails?.taskType || '-'}</Text>
-            </View>
+            {order.orderDetails?.taskType && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Jenis Tugas</Text>
+                <Text style={styles.detailValue}>{order.orderDetails.taskType}</Text>
+              </View>
+            )}
             
-            <View style={styles.notesContainer}>
-              <Text style={styles.notesLabel}>Catatan:</Text>
-              <Text style={styles.notesValue}>
-                {order.orderDetails?.notes || '-'}
-              </Text>
-            </View>
+            {order.orderDetails?.notes && (
+              <View style={styles.notesContainer}>
+                <Text style={styles.notesLabel}>Catatan:</Text>
+                <Text style={styles.notesValue}>
+                  {order.orderDetails.notes}
+                </Text>
+              </View>
+            )}
           </View>
         </View>
         
@@ -681,7 +724,7 @@ const OrderDetailScreen = () => {
           <View style={styles.infoCard}>
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>Metode Pembayaran</Text>
-              <Text style={styles.detailValue}>{order.paymentMethod}</Text>
+              <Text style={styles.detailValue}>{order.paymentMethod || 'Tunai'}</Text>
             </View>
             
             {order.paymentAccountNumber && (
@@ -701,7 +744,7 @@ const OrderDetailScreen = () => {
             <View style={styles.priceRow}>
               <Text style={styles.priceLabel}>Total Pembayaran</Text>
               <Text style={styles.priceValue}>
-                Rp {order.amount?.toLocaleString('id-ID')}
+                Rp {order.amount?.toLocaleString('id-ID') || '0'}
               </Text>
             </View>
           </View>
@@ -770,24 +813,39 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#F3F4F6',
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
+    backgroundColor: '#F3F4F6',
   },
   emptyText: {
     fontSize: 16,
     color: '#6B7280',
     marginTop: 16,
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  backButtonEmpty: {
+    backgroundColor: '#4F46E5',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+  },
+  backButtonEmptyText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 16,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 16,
-    backgroundColor: '#2E7D32',
+    backgroundColor: '#F9FAFB',
     borderBottomLeftRadius: 20,
     borderBottomRightRadius: 20,
   },

@@ -1,202 +1,253 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
+  Image,
   Animated,
   Easing,
+  Dimensions,
+  StatusBar,
+  SafeAreaView,
 } from 'react-native';
 import { router } from 'expo-router';
-import { Svg, Circle, Path } from 'react-native-svg';
+import { LinearGradient } from 'expo-linear-gradient';
+
+const { width, height } = Dimensions.get('window');
 
 export default function LoadingScreen() {
-  const [progress, setProgress] = useState(0);
-  const fadeAnim = new Animated.Value(0);
-  const scaleAnim = new Animated.Value(0.8);
-  const spinValue = new Animated.Value(0);
-  const progressAnim = new Animated.Value(0);
-  const blinkAnim = new Animated.Value(0);
+  const logoScale = useRef(new Animated.Value(0)).current;
+  const logoRotate = useRef(new Animated.Value(0)).current;
+  const runnerAnim = useRef(new Animated.Value(0)).current;
+  const textFade = useRef(new Animated.Value(0)).current;
+  const subtextFade = useRef(new Animated.Value(0)).current;
+  const progressWidth = useRef(new Animated.Value(0)).current;
+  
+  const spin = logoRotate.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
 
   useEffect(() => {
-    Animated.loop(
-      Animated.timing(spinValue, {
+    // Logo scale and rotation animation
+    Animated.parallel([
+      Animated.timing(logoScale, {
         toValue: 1,
-        duration: 1500,
-        easing: Easing.linear,
+        duration: 1000,
+        easing: Easing.elastic(1),
+        useNativeDriver: true,
+      }),
+      Animated.timing(logoRotate, {
+        toValue: 1,
+        duration: 1200,
+        easing: Easing.out(Easing.ease),
         useNativeDriver: true,
       })
-    ).start();
+    ]).start();
 
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 1000,
-      easing: Easing.out(Easing.exp),
-      useNativeDriver: true,
-    }).start();
-
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      friction: 5,
-      tension: 80,
-      useNativeDriver: true,
-    }).start();
-
-    Animated.timing(progressAnim, {
-      toValue: 1,
-      duration: 200000,
-      easing: Easing.linear,
-      useNativeDriver: false,
-    }).start(({ finished }) => {
-      if (finished) {
-        router.push('/login');
-      }
-    });
-
-    progressAnim.addListener(({ value }) => {
-      setProgress(Math.floor(value * 100));
-    });
-
-    // Blink footer text
+    // Runner animation - more complex movement
     Animated.loop(
       Animated.sequence([
-        Animated.timing(blinkAnim, {
-          toValue: 1,
-          duration: 700,
+        Animated.timing(runnerAnim, {
+          toValue: -15,
+          duration: 300,
+          easing: Easing.inOut(Easing.quad),
           useNativeDriver: true,
         }),
-        Animated.timing(blinkAnim, {
+        Animated.timing(runnerAnim, {
+          toValue: 15,
+          duration: 300,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(runnerAnim, {
           toValue: 0,
-          duration: 700,
+          duration: 300,
+          easing: Easing.inOut(Easing.quad),
           useNativeDriver: true,
         }),
       ])
     ).start();
 
-    return () => {
-      progressAnim.removeAllListeners();
-    };
+    // Text animations with staggered timing
+    setTimeout(() => {
+      Animated.sequence([
+        Animated.timing(textFade, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(subtextFade, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true,
+        })
+      ]).start();
+    }, 1200);
+
+    // Progress bar animation
+    Animated.timing(progressWidth, {
+      toValue: 1,
+      duration: 4000,
+      easing: Easing.inOut(Easing.quad),
+      useNativeDriver: false,
+    }).start();
+
+    // Navigate to login after delay
+    setTimeout(() => {
+      router.push('/login');
+    }, 4500);
   }, []);
 
-  const spin = spinValue.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
-  });
-
-  const Logo = () => (
-    <Svg width={120} height={120} viewBox="0 0 120 120" style={styles.logo}>
-      <Circle cx="60" cy="60" r="50" fill="#7C3AED" />
-      <Path d="M60 30L75 50H45L60 30Z" fill="#FFFFFF" />
-      <Path d="M60 90L45 70H75L60 90Z" fill="#FFFFFF" />
-      <Path d="M30 60L50 45V75L30 60Z" fill="#FFFFFF" />
-      <Path d="M90 60L70 75V45L90 60Z" fill="#FFFFFF" />
-    </Svg>
-  );
-
   return (
-    <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
-      <Animated.View style={[styles.content, { transform: [{ scale: scaleAnim }] }]}>
-        <Logo />
-
-        <Text style={styles.title}>TEFAA APPS</Text>
-        <Text style={styles.subtitle}>
-          JOKI APLIKASI ANDA BERSAMA {'\n'}<Text style={styles.author}>TEFA BY HARIS FEBRIYAN</Text>
-        </Text>
-
-        <Animated.View style={{ transform: [{ rotate: spin }], marginVertical: 25 }}>
-          <Svg width={40} height={40} viewBox="0 0 100 100">
-            <Circle cx="50" cy="50" r="40" stroke="#7C3AED" strokeWidth="8" fill="none" strokeDasharray="200" strokeDashoffset="100" />
-          </Svg>
+    <SafeAreaView style={styles.safe}>
+      <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
+      <LinearGradient 
+        colors={['#EEF2FF', '#F9FAFB', '#E0E7FF']}
+        style={styles.container}
+      >
+        <Animated.View
+          style={[
+            styles.logoContainer,
+            {
+              transform: [
+                { scale: logoScale },
+                { rotate: spin }
+              ],
+            },
+          ]}
+        >
+          <Image
+            source={require('../../assets/images/icon.png')}
+            style={styles.logo}
+            resizeMode="contain"
+          />
         </Animated.View>
 
-        <View style={styles.progressContainer}>
-          <View style={styles.progressBar}>
-            <Animated.View
-              style={[
-                styles.progressFill,
-                {
-                  width: progressAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: ['0%', '100%'],
-                  }),
-                },
-              ]}
-            />
+        {/* Runner animation */}
+        <Animated.View
+          style={[styles.runnerContainer, {
+            transform: [{ translateX: runnerAnim }],
+          }]}
+        >
+          <Text style={styles.pushIcon}>🏃‍♂️</Text>
+          
+          {/* Dust effect */}
+          <View style={styles.dustEffect}>
+            <Text style={styles.dustParticle}></Text>
           </View>
-          <Text style={styles.progressText}>{progress}%</Text>
+        </Animated.View>
+
+        <Animated.Text style={[styles.title, { opacity: textFade }]}>
+          APLIKASI TEFAA
+        </Animated.Text>
+
+        <Animated.Text style={[styles.subtext, { opacity: subtextFade }]}>
+          Kami Siap Mmebantu Anda
+        </Animated.Text>
+
+        {/* Progress bar */}
+        <View style={styles.progressContainer}>
+          <Animated.View 
+            style={[
+              styles.progressBar, 
+              { width: progressWidth.interpolate({
+                inputRange: [0, 1],
+                outputRange: ['0%', '100%']
+              })}
+            ]} 
+          />
         </View>
 
-        <Animated.Text style={[styles.footerText, { opacity: blinkAnim }]}>
-          Memuat aplikasi...
-        </Animated.Text>
-      </Animated.View>
-    </Animated.View>
+        <Text style={styles.version}>v1.0.2 • Haris Febriyan</Text>
+      </LinearGradient>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safe: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFF',
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
+    padding: 24,
   },
-  content: {
+  logoContainer: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    backgroundColor: '#E0E7FF',
     alignItems: 'center',
-    width: '100%',
+    justifyContent: 'center',
+    marginBottom: 30,
+    elevation: 8,
+    shadowColor: '#4C1D95',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    borderWidth: 3,
+    borderColor: '#F5F3FF',
   },
   logo: {
-    marginBottom: 25,
-    shadowColor: '#7C3AED',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+  },
+  runnerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 30,
+    height: 60,
+  },
+  pushIcon: {
+    fontSize: 46,
+  },
+  dustEffect: {
+    position: 'absolute',
+    left: -20,
+  },
+  dustParticle: {
+    fontSize: 24,
+    opacity: 0.7,
   },
   title: {
-    fontSize: 36,
+    fontSize: 30,
     fontWeight: '800',
-    color: '#7C3AED',
-    textAlign: 'center',
-    marginBottom: 10,
+    color: '#4C1D95',
+    marginBottom: 12,
+    letterSpacing: 1.2,
+    textShadowColor: 'rgba(76, 29, 149, 0.15)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
-  subtitle: {
+  subtext: {
     fontSize: 16,
-    color: '#475569',
-    textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 25,
-  },
-  author: {
-    fontWeight: '700',
-    color: '#7C3AED',
+    color: '#6B7280',
+    fontWeight: '500',
+    marginBottom: 40,
   },
   progressContainer: {
-    width: '80%',
-    marginTop: 10,
-    alignItems: 'center',
+    width: width * 0.7,
+    height: 6,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 20,
   },
   progressBar: {
-    height: 8,
-    width: '100%',
-    backgroundColor: '#E2E8F0',
-    borderRadius: 5,
-    overflow: 'hidden',
-    marginBottom: 6,
-  },
-  progressFill: {
     height: '100%',
-    backgroundColor: '#7C3AED',
-    borderRadius: 5,
+    backgroundColor: '#6D28D9',
+    borderRadius: 3,
   },
-  progressText: {
-    fontSize: 14,
-    color: '#475569',
-    fontWeight: '600',
-  },
-  footerText: {
-    fontSize: 14,
-    color: '#94A3B8',
-    marginTop: 30,
-    fontStyle: 'italic',
+  version: {
+    position: 'absolute',
+    bottom: 24,
+    fontSize: 12,
+    color: '#9CA3AF',
+    fontWeight: '500',
   },
 });

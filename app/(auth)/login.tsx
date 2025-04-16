@@ -12,12 +12,13 @@ import {
   Easing,
   Dimensions,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { Link, router } from 'expo-router';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
-import { Mail, Lock, ArrowRight, User, Eye, EyeOff, Key, LogIn } from 'lucide-react-native';
+import { Mail, Lock, ArrowRight, Eye, EyeOff, Key } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Animatable from 'react-native-animatable';
 
@@ -90,9 +91,6 @@ export default function Login() {
 
   return (
     <ImageBackground
-      source={{
-        uri: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1470&q=80',
-      }}
       style={styles.background}
       blurRadius={3}
     >
@@ -106,9 +104,11 @@ export default function Login() {
         >
           <Animated.View style={[styles.content, { opacity: fadeAnim }, shakeStyle]}>
             <Animatable.View animation="fadeInDown" duration={1500} style={styles.logoContainer}>
-              <View style={styles.logoCircle}>
-                <LogIn size={32} color="#fff" />
-              </View>
+              <Image 
+                source={require('../../assets/images/icon.png')} // Ganti dengan logo Anda
+                style={styles.logo}
+                resizeMode="contain"
+              />
               <Text style={styles.title}>Masuk ke Akun Anda</Text>
               <Text style={styles.subtitle}>Silakan isi email dan password</Text>
             </Animatable.View>
@@ -222,17 +222,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 25,
   },
-  logoCircle: {
-    backgroundColor: 'rgba(124, 58, 237, 0.2)',
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: 'rgba(124, 58, 237, 0.5)',
+  logo: {
+    width: 80,
+    height: 80,
     marginBottom: 15,
+    borderRadius: 40, // setengah dari 80
+    borderWidth: 2,
+    borderColor: '#A78BFA', // opsional: tambahkan garis pinggir ungu biar elegan
+    backgroundColor: '#fff', // opsional: biar kalau PNG transparan tetap kelihatan bagus
   },
+  
   title: {
     fontFamily: 'Poppins_700Bold',
     fontSize: 24,

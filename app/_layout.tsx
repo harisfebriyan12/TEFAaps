@@ -11,11 +11,8 @@ import {
   Poppins_600SemiBold,
   Poppins_700Bold,
 } from '@expo-google-fonts/poppins';
-import { SplashScreen } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen'; // ini perlu dari expo-splash-screen langsung
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
-
-// Prevent splash screen from auto-hiding
-SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   useFrameworkReady();
@@ -31,15 +28,27 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
-    if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
-      setTimeout(() => {
-        router.replace('/login'); // Redirect setelah splash screen selesai
-      },0); // Tambahkan delay 1 detik agar tidak error
-    }
+    const prepare = async () => {
+      try {
+        // Cegah splash langsung hilang
+        await SplashScreen.preventAutoHideAsync();
+
+        if (fontsLoaded || fontError) {
+          // Tunggu minimal 1.5 detik agar splash terlihat
+          setTimeout(async () => {
+            await SplashScreen.hideAsync();
+            router.replace('/login');
+          }, 50000); // waktu ideal: 1800ms
+        }
+      } catch (err) {
+        console.warn(err);
+      }
+    };
+
+    prepare();
   }, [fontsLoaded, fontError]);
 
-  // Return null to keep splash screen visible while fonts load
+  // Jangan render dulu sebelum font siap
   if (!fontsLoaded && !fontError) {
     return null;
   }

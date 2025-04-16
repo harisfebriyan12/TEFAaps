@@ -27,6 +27,7 @@ import {
   Lock,
   Trash2,
   Info,
+  HelpCircle,
 } from 'lucide-react-native';
 
 export default function Profile() {
@@ -95,6 +96,10 @@ export default function Profile() {
       console.error('Error signing out:', error);
       Alert.alert('Error', 'Failed to log out.');
     }
+  };
+
+  const handleNavigateToAboutUs = () => {
+    router.push('../about');
   };
 
   const handleSendVerificationEmail = async () => {
@@ -379,12 +384,24 @@ export default function Profile() {
             <Info size={20} color="#666" />
             <Text style={styles.settingText}>VERSI APK 1.0</Text>
           </TouchableOpacity>
+          
+          {/* Tombol Tentang Kami baru */}
+          <TouchableOpacity 
+            style={styles.settingButton}
+            onPress={handleNavigateToAboutUs}
+          >
+            <HelpCircle size={20} color="#7C3AED" />
+            <Text style={styles.settingText}>Tentang Kami</Text>
+          </TouchableOpacity>
         </View>
 
         <TouchableOpacity
           onPress={handleDeleteAccount}
           style={[styles.settingButton, { marginTop: 16 }]}
-        ></TouchableOpacity>
+        >
+          <Trash2 size={20} color="#EF4444" />
+          <Text style={[styles.settingText, { color: '#EF4444' }]}>Hapus Akun</Text>
+        </TouchableOpacity>
       </View>
     </ScrollView>
   );

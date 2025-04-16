@@ -11,11 +11,12 @@ import {
   Platform,
   Animated,
   Easing,
+  Image,
 } from 'react-native';
 import { Link } from 'expo-router';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
-import { Mail, ArrowLeft, Key } from 'lucide-react-native';
+import { Mail, ArrowLeft } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Animatable from 'react-native-animatable';
 
@@ -62,9 +63,6 @@ export default function LupaPassword() {
 
   return (
     <ImageBackground
-      source={{
-        uri: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1470&q=80',
-      }}
       style={styles.background}
       blurRadius={3}
     >
@@ -82,9 +80,11 @@ export default function LupaPassword() {
             </Link>
 
             <Animatable.View animation="fadeInDown" duration={1000} style={styles.header}>
-              <View style={styles.iconContainer}>
-                <Key size={32} color="#fff" />
-              </View>
+              <Image 
+                source={require('../../assets/images/icon.png')}
+                style={styles.logo}
+                resizeMode="contain"
+              />
               <Text style={styles.title}>Atur Ulang Kata Sandi</Text>
               <Text style={styles.subtitle}>
                 Masukkan email Anda untuk menerima instruksi pengaturan ulang
@@ -178,17 +178,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 30,
   },
-  iconContainer: {
-    backgroundColor: 'rgba(124, 58, 237, 0.2)',
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    justifyContent: 'center',
-    alignItems: 'center',
+  logo: {
+    width: 80,
+    height: 80,
+    marginBottom: 15,
+    borderRadius: 30, // setengah dari 80
     borderWidth: 2,
-    borderColor: 'rgba(124, 58, 237, 0.5)',
-    marginBottom: 20,
+    borderColor: '#A78BFA', // opsional: tambahkan garis pinggir ungu biar elegan
+    backgroundColor: '#fff', // opsional: biar kalau PNG transparan tetap kelihatan bagus
   },
+  
   title: {
     fontFamily: 'Poppins_700Bold',
     fontSize: 24,
