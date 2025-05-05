@@ -11,7 +11,7 @@ import {
   Alert,
 } from 'react-native';
 import { router } from 'expo-router';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { signOut, sendEmailVerification, updatePassword } from 'firebase/auth';
 import * as ImagePicker from 'expo-image-picker';
 import { auth, db, storage } from '@/lib/firebase';
@@ -47,9 +47,11 @@ export default function Profile() {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [hasActiveOrders, setHasActiveOrders] = useState(false);
 
   useEffect(() => {
     loadProfile();
+    checkActiveOrders();
   }, []);
 
   const loadProfile = async () => {
@@ -67,6 +69,26 @@ export default function Profile() {
     } catch (error) {
       console.error('Error loading profile:', error);
       Alert.alert('Error', 'Failed to load profile data.');
+    }
+  };
+
+  const checkActiveOrders = async () => {
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        // Periksa jika pengguna memiliki pesanan yang masih dalam proses
+        const ordersRef = collection(db, 'orders');
+        const q = query(
+          ordersRef,
+          where('userId', '==', user.uid),
+          where('status', 'in', ['pending', 'processing', 'shipping'])
+        );
+        
+        const querySnapshot = await getDocs(q);
+        setHasActiveOrders(!querySnapshot.empty);
+      }
+    } catch (error) {
+      console.error('Error checking active orders:', error);
     }
   };
 
@@ -121,6 +143,7 @@ export default function Profile() {
 
   const handleChangeProfilePicture = async () => {
     try {
+      // Request permission for media library
       const permissionResult =
         await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permissionResult.granted) {
@@ -131,6 +154,7 @@ export default function Profile() {
         return;
       }
 
+      // Open document picker instead of image library
       const pickerResult = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
@@ -188,25 +212,35 @@ export default function Profile() {
   };
 
   const handleDeleteAccount = async () => {
+    // Periksa jika pengguna memiliki pesanan yang aktif
+    if (hasActiveOrders) {
+      Alert.alert(
+        'Tidak Dapat Menghapus Akun',
+        'Anda masih memiliki pesanan yang sedang diproses. Silahkan hubungi admin untuk bantuan lebih lanjut.',
+        [{ text: 'OK', style: 'default' }]
+      );
+      return;
+    }
+
     Alert.alert(
-      'Delete Account',
-      'Are you sure you want to delete your account? This action cannot be undone.',
+      'Hapus Akun',
+      'Apakah Anda yakin ingin menghapus akun? Tindakan ini tidak dapat dibatalkan.',
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: 'Batal', style: 'cancel' },
         {
-          text: 'Delete',
+          text: 'Hapus',
           style: 'destructive',
           onPress: async () => {
             try {
               const user = auth.currentUser;
               if (user) {
                 await user.delete();
-                Alert.alert('Success', 'Account deleted successfully.');
+                Alert.alert('Berhasil', 'Akun berhasil dihapus.');
                 router.replace('/login');
               }
             } catch (error) {
               console.error('Error deleting account:', error);
-              Alert.alert('Error', 'Failed to delete account.');
+              Alert.alert('Error', 'Gagal menghapus akun.');
             }
           },
         },
@@ -219,7 +253,7 @@ export default function Profile() {
       <View style={styles.header}>
         <Text style={styles.title}>Profile</Text>
         <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-          <LogOut size={24} color="#7C3AED" />
+          <LogOut size={24} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
 
@@ -260,7 +294,7 @@ export default function Profile() {
               onPress={() => setIsEditing(!isEditing)}
               style={styles.editButton}
             >
-              <Edit2 size={20} color={isEditing ? '#7C3AED' : '#666'} />
+              <Edit2 size={20} color={isEditing ? '#1E88E5' : '#666'} />
             </TouchableOpacity>
           </View>
 
@@ -317,7 +351,7 @@ export default function Profile() {
                 />
               ) : (
                 <Text style={styles.infoText}>
-                  {profile.address || 'No address added'}
+                  {profile.address || 'Belum ada alamat'}
                 </Text>
               )}
             </View>
@@ -385,14 +419,7 @@ export default function Profile() {
             <Text style={styles.settingText}>VERSI APK 1.0</Text>
           </TouchableOpacity>
           
-          {/* Tombol Tentang Kami baru */}
-          <TouchableOpacity 
-            style={styles.settingButton}
-            onPress={handleNavigateToAboutUs}
-          >
-            <HelpCircle size={20} color="#7C3AED" />
-            <Text style={styles.settingText}>Tentang Kami</Text>
-          </TouchableOpacity>
+        
         </View>
 
         <TouchableOpacity
@@ -402,6 +429,12 @@ export default function Profile() {
           <Trash2 size={20} color="#EF4444" />
           <Text style={[styles.settingText, { color: '#EF4444' }]}>Hapus Akun</Text>
         </TouchableOpacity>
+        
+        {hasActiveOrders && (
+          <Text style={styles.warningText}>
+            *Tidak dapat menghapus akun karena masih memiliki pesanan aktif. Silahkan hubungi admin untuk bantuan.
+          </Text>
+        )}
       </View>
     </ScrollView>
   );
@@ -415,7 +448,7 @@ const styles = StyleSheet.create({
   header: {
     padding: 24,
     paddingTop: 10,
-    backgroundColor: '#fff',
+    backgroundColor: '#1E88E5', // Warna header diubah menjadi biru
     borderBottomLeftRadius: 32,
     borderBottomRightRadius: 32,
     shadowColor: '#000',
@@ -429,7 +462,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 24,
-    color: '#1a1a1a',
+    color: '#FFFFFF', // Warna text diubah menjadi putih untuk kontras
     fontFamily: 'Poppins_600SemiBold',
   },
   logoutButton: {
@@ -459,7 +492,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 0,
     right: 0,
-    backgroundColor: '#7C3AED',
+    backgroundColor: '#1E88E5', // Diubah untuk konsistensi warna biru
     borderRadius: 20,
     padding: 6,
   },
@@ -488,7 +521,7 @@ const styles = StyleSheet.create({
   verifyButton: {
     marginTop: 8,
     padding: 8,
-    backgroundColor: '#7C3AED',
+    backgroundColor: '#1E88E5', // Warna tombol diubah menjadi biru
     borderRadius: 8,
   },
   verifyButtonText: {
@@ -549,7 +582,7 @@ const styles = StyleSheet.create({
     borderColor: '#e5e5e5',
   },
   saveButton: {
-    backgroundColor: '#7C3AED',
+    backgroundColor: '#1E88E5', // Warna tombol diubah menjadi biru
     padding: 16,
     borderRadius: 12,
     alignItems: 'center',
@@ -575,5 +608,13 @@ const styles = StyleSheet.create({
   passwordContainer: {
     gap: 16,
     marginTop: 16,
+  },
+  warningText: {
+    color: '#EF4444',
+    fontSize: 14,
+    fontFamily: 'Inter_400Regular',
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 24,
   },
 });

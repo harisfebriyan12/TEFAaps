@@ -13,153 +13,95 @@ import {
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
 export default function LoadingScreen() {
   const logoScale = useRef(new Animated.Value(0)).current;
-  const logoRotate = useRef(new Animated.Value(0)).current;
-  const runnerAnim = useRef(new Animated.Value(0)).current;
   const textFade = useRef(new Animated.Value(0)).current;
   const subtextFade = useRef(new Animated.Value(0)).current;
   const progressWidth = useRef(new Animated.Value(0)).current;
-  
-  const spin = logoRotate.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
-  });
 
   useEffect(() => {
-    // Logo scale and rotation animation
-    Animated.parallel([
-      Animated.timing(logoScale, {
-        toValue: 1,
-        duration: 1000,
-        easing: Easing.elastic(1),
-        useNativeDriver: true,
-      }),
-      Animated.timing(logoRotate, {
-        toValue: 1,
-        duration: 1200,
-        easing: Easing.out(Easing.ease),
-        useNativeDriver: true,
-      })
-    ]).start();
+    Animated.spring(logoScale, {
+      toValue: 1,
+      useNativeDriver: true,
+      friction: 6,
+      tension: 100,
+    }).start();
 
-    // Runner animation - more complex movement
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(runnerAnim, {
-          toValue: -15,
-          duration: 300,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(runnerAnim, {
-          toValue: 15,
-          duration: 300,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(runnerAnim, {
-          toValue: 0,
-          duration: 300,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
-
-    // Text animations with staggered timing
     setTimeout(() => {
-      Animated.sequence([
+      Animated.parallel([
         Animated.timing(textFade, {
           toValue: 1,
-          duration: 800,
+          duration: 600,
           useNativeDriver: true,
         }),
         Animated.timing(subtextFade, {
           toValue: 1,
-          duration: 600,
+          duration: 800,
           useNativeDriver: true,
-        })
+        }),
       ]).start();
-    }, 1200);
+    }, 800);
 
-    // Progress bar animation
     Animated.timing(progressWidth, {
       toValue: 1,
-      duration: 4000,
-      easing: Easing.inOut(Easing.quad),
+      duration: 3500,
+      easing: Easing.inOut(Easing.ease),
       useNativeDriver: false,
     }).start();
 
-    // Navigate to login after delay
     setTimeout(() => {
-      router.push('/login');
-    }, 4500);
+      router.push('/(auth)/login');
+    }, 4000);
   }, []);
 
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
-      <LinearGradient 
-        colors={['#EEF2FF', '#F9FAFB', '#E0E7FF']}
-        style={styles.container}
-      >
+      <LinearGradient colors={['#FFFFFF', '#F9FAFB']} style={styles.container}>
         <Animated.View
           style={[
             styles.logoContainer,
             {
-              transform: [
-                { scale: logoScale },
-                { rotate: spin }
-              ],
+              transform: [{ scale: logoScale }],
             },
           ]}
         >
           <Image
-            source={require('../../assets/images/icon.png')}
+            source={require('../../assets/images/splash.png')}
             style={styles.logo}
             resizeMode="contain"
           />
         </Animated.View>
 
-        {/* Runner animation */}
-        <Animated.View
-          style={[styles.runnerContainer, {
-            transform: [{ translateX: runnerAnim }],
-          }]}
-        >
-          <Text style={styles.pushIcon}>🏃‍♂️</Text>
-          
-          {/* Dust effect */}
-          <View style={styles.dustEffect}>
-            <Text style={styles.dustParticle}></Text>
-          </View>
-        </Animated.View>
-
         <Animated.Text style={[styles.title, { opacity: textFade }]}>
-          APLIKASI TEFAA
+          TEACHING FACTORY
         </Animated.Text>
 
         <Animated.Text style={[styles.subtext, { opacity: subtextFade }]}>
-          Kami Siap Mmebantu Anda
+          Bersama Kami Tugas Anda Selesai
         </Animated.Text>
 
-        {/* Progress bar */}
         <View style={styles.progressContainer}>
-          <Animated.View 
+          <Animated.View
             style={[
-              styles.progressBar, 
-              { width: progressWidth.interpolate({
-                inputRange: [0, 1],
-                outputRange: ['0%', '100%']
-              })}
-            ]} 
+              styles.progressBar,
+              {
+                width: progressWidth.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['0%', '100%'],
+                }),
+              },
+            ]}
           />
         </View>
 
-        <Text style={styles.version}>v1.0.2 • Haris Febriyan</Text>
+        <Animated.Text style={[styles.loadingText, { opacity: subtextFade }]}>
+          Memuat aplikasi...
+        </Animated.Text>
+
+        <Text style={styles.version}>v1.0.3 • Haris Febriyan</Text>
       </LinearGradient>
     </SafeAreaView>
   );
@@ -168,7 +110,7 @@ export default function LoadingScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#4F46E5',
   },
   container: {
     flex: 1,
@@ -177,77 +119,64 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   logoContainer: {
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    backgroundColor: '#E0E7FF',
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: '#EEF2FF',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 30,
-    elevation: 8,
-    shadowColor: '#4C1D95',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    borderWidth: 3,
-    borderColor: '#F5F3FF',
+    marginBottom: 28,
+    shadowColor: '#A5B4FC',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 15,
   },
   logo: {
     width: 90,
     height: 90,
     borderRadius: 45,
   },
-  runnerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 30,
-    height: 60,
-  },
-  pushIcon: {
-    fontSize: 46,
-  },
-  dustEffect: {
-    position: 'absolute',
-    left: -20,
-  },
-  dustParticle: {
-    fontSize: 24,
-    opacity: 0.7,
-  },
   title: {
     fontSize: 30,
     fontWeight: '800',
-    color: '#4C1D95',
-    marginBottom: 12,
+    color: '#1E88E5',
+    marginBottom: 8,
     letterSpacing: 1.2,
-    textShadowColor: 'rgba(76, 29, 149, 0.15)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 2,
   },
   subtext: {
     fontSize: 16,
     color: '#6B7280',
     fontWeight: '500',
-    marginBottom: 40,
+    marginBottom: 36,
+    fontStyle: 'italic',
   },
   progressContainer: {
-    width: width * 0.7,
-    height: 6,
+    width: width * 0.6,
+    height: 8,
     backgroundColor: '#E5E7EB',
-    borderRadius: 3,
+    borderRadius: 4,
     overflow: 'hidden',
-    marginBottom: 20,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
   },
   progressBar: {
     height: '100%',
-    backgroundColor: '#6D28D9',
-    borderRadius: 3,
+    backgroundColor: '#1E88E5',
+    borderRadius: 4,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    marginTop: 4,
+    marginBottom: 10,
   },
   version: {
     position: 'absolute',
     bottom: 24,
     fontSize: 12,
     color: '#9CA3AF',
-    fontWeight: '500',
+    fontStyle: 'italic',
   },
 });

@@ -7,12 +7,12 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: '#fff',
+          backgroundColor: '#fff',         // tetap putih
           borderTopWidth: 1,
-          borderTopColor: '#f5f5f5',
+          borderTopColor: '#fff',       // tetap biru
         },
-        tabBarActiveTintColor: '#7C3AED',
-        tabBarInactiveTintColor: '#666',
+        tabBarActiveTintColor: '#3B82F6',  // UBAH: jadi biru saat aktif
+        tabBarInactiveTintColor: '#666',   // tetap abu-abu saat tidak aktif
       }}
     >
       <Tabs.Screen

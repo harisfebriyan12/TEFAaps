@@ -1,3 +1,4 @@
+// ManageUsers.js (Frontend)
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -9,10 +10,12 @@ import {
   Alert,
   ActivityIndicator,
   Image,
+  Modal,
+  ScrollView,
 } from 'react-native';
-import { collection, query, getDocs, doc, deleteDoc, where } from 'firebase/firestore';
-import { db, auth } from '@/lib/firebase';
-import { deleteUser as deleteAuthUser } from 'firebase/auth';
+import { collection, query, getDocs, doc, where, addDoc, getDoc } from 'firebase/firestore';
+import { db, auth, functions } from '@/lib/firebase'; // Make sure to import functions
+import { httpsCallable } from 'firebase/functions';
 import {
   Search,
   User,
@@ -22,6 +25,8 @@ import {
   Trash2,
   ArrowLeft,
   PhoneCall,
+  Plus,
+  X,
 } from 'lucide-react-native';
 import { router } from 'expo-router';
 
@@ -30,10 +35,52 @@ export default function ManageUsers() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [processingAction, setProcessingAction] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  
+  // Form states for new user
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState('user'); // Default role as 'user'
+  const [isFormValid, setIsFormValid] = useState(false);
 
   useEffect(() => {
+    // Verify that the current user is an admin
+    checkAdminStatus();
     loadUsers();
   }, []);
+
+  useEffect(() => {
+    // Check if form is valid
+    setIsFormValid(
+      name.trim() !== '' && 
+      email.trim() !== '' && 
+      password.length >= 6
+    );
+  }, [name, email, password]);
+
+  // Function to check if current user is an admin
+  const checkAdminStatus = async () => {
+    try {
+      if (!auth.currentUser) {
+        Alert.alert('Akses Ditolak', 'Anda harus login terlebih dahulu');
+        router.replace('/login');
+        return;
+      }
+
+      // Get current user's role from Firestore
+      const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+      if (!userDoc.exists() || userDoc.data().role !== 'admin') {
+        Alert.alert('Akses Ditolak', 'Anda tidak memiliki izin untuk mengakses halaman ini');
+        router.replace('/');
+        return;
+      }
+    } catch (error) {
+      console.error('Error checking admin status:', error);
+      Alert.alert('Error', 'Gagal memverifikasi status admin');
+      router.replace('/');
+    }
+  };
 
   const loadUsers = async () => {
     try {
@@ -47,7 +94,7 @@ export default function ManageUsers() {
         usersData.push({
           id: doc.id,
           ...doc.data(),
-          // Pastikan profilePicture ada, jika tidak gunakan default
+          // Ensure profilePicture exists, if not use default
           profilePicture: doc.data().profilePicture || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(doc.data().name || 'User')
         });
       });
@@ -64,42 +111,33 @@ export default function ManageUsers() {
   const toggleUserStatus = async (userId, isActive) => {
     try {
       setProcessingAction(true);
-      // Cek transaksi aktif sebelum menonaktifkan
-      if (!isActive) {
-        // Jika mengaktifkan kembali, tidak perlu cek transaksi
-        Alert.alert(
-          'Info',
-          'Fitur aktivasi pengguna memerlukan implementasi Firebase Auth Admin SDK di backend'
-        );
-      } else {
-        // Jika menonaktifkan, cek transaksi dulu
+      
+      // Check for active transactions before deactivating
+      if (isActive) {
         const hasActiveTransactions = await checkUserTransactions(userId);
         if (hasActiveTransactions) {
           Alert.alert(
             'Tidak Dapat Menonaktifkan Pengguna',
-            'Pengguna memiliki transaksi yang sedang diproses atau ditunggu. Silahkan hubungi admin untuk bantuan lebih lanjut.',
-            [
-              { text: 'OK' },
-              { 
-                text: 'Hubungi Admin', 
-                onPress: () => {
-                  Alert.alert('Info', 'Fitur hubungi admin akan segera tersedia');
-                } 
-              }
-            ]
+            'Pengguna memiliki transaksi yang sedang diproses atau ditunggu.',
+            [{ text: 'OK' }]
           );
           return;
-        } else {
-          Alert.alert(
-            'Info',
-            'Fitur nonaktifkan pengguna memerlukan implementasi Firebase Auth Admin SDK di backend'
-          );
         }
       }
-      loadUsers();
+      
+      // Call Firebase Cloud Function to toggle user status
+      const toggleUserStatusFunc = httpsCallable(functions, 'toggleUserStatus');
+      const result = await toggleUserStatusFunc({ userId, setActive: !isActive });
+      
+      if (result.data.success) {
+        Alert.alert('Sukses', `Pengguna berhasil ${!isActive ? 'diaktifkan' : 'dinonaktifkan'}`);
+        loadUsers(); // Reload user list
+      } else {
+        throw new Error(result.data.error || 'Gagal mengubah status pengguna');
+      }
     } catch (error) {
       console.error('Error updating user status:', error);
-      Alert.alert('Error', 'Gagal mengubah status pengguna');
+      Alert.alert('Error', `Gagal ${isActive ? 'menonaktifkan' : 'mengaktifkan'} pengguna: ${error.message}`);
     } finally {
       setProcessingAction(false);
     }
@@ -142,35 +180,24 @@ export default function ManageUsers() {
               if (hasActiveTransactions) {
                 Alert.alert(
                   'Tidak Dapat Menghapus Pengguna',
-                  'Pengguna memiliki transaksi yang sedang diproses atau ditunggu. Silahkan hubungi admin untuk bantuan lebih lanjut.',
-                  [
-                    { text: 'OK' },
-                    { 
-                      text: 'Hubungi Admin', 
-                      onPress: () => {
-                        // Implementasi untuk menghubungi admin bisa ditambahkan disini
-                        Alert.alert('Info', 'Fitur hubungi admin akan segera tersedia');
-                      } 
-                    }
-                  ]
+                  'Pengguna memiliki transaksi yang sedang diproses atau ditunggu.'
                 );
                 return;
               }
               
-              // Hapus dari Firestore
-              await deleteDoc(doc(db, 'users', userId));
-
-              // Kemudian hapus dari Authentication
-              // Catatan: Ini memerlukan hak admin dalam aplikasi sebenarnya
-              Alert.alert(
-                'Sukses',
-                'Data pengguna berhasil dihapus. Penghapusan dari sistem autentikasi memerlukan implementasi Firebase Admin SDK.'
-              );
-
-              loadUsers();
+              // Call Firebase Cloud Function to delete user
+              const deleteUserFunc = httpsCallable(functions, 'deleteUser');
+              const result = await deleteUserFunc({ userId });
+              
+              if (result.data.success) {
+                Alert.alert('Sukses', 'Pengguna berhasil dihapus dari sistem');
+                loadUsers(); // Reload user list
+              } else {
+                throw new Error(result.data.error || 'Gagal menghapus pengguna');
+              }
             } catch (error) {
               console.error('Error deleting user:', error);
-              Alert.alert('Error', 'Gagal menghapus pengguna');
+              Alert.alert('Error', `Gagal menghapus pengguna: ${error.message}`);
             } finally {
               setProcessingAction(false);
             }
@@ -180,11 +207,81 @@ export default function ManageUsers() {
     );
   };
 
+  const createNewUser = async () => {
+    if (!isFormValid) {
+      Alert.alert('Error', 'Mohon lengkapi semua field dengan benar');
+      return;
+    }
+
+    try {
+      setProcessingAction(true);
+      
+      // Call Firebase Cloud Function to create a new user
+      const createUserFunc = httpsCallable(functions, 'createUser');
+      const result = await createUserFunc({
+        name,
+        email,
+        password,
+        role
+      });
+      
+      if (result.data.success) {
+        Alert.alert('Sukses', `Pengguna ${role} berhasil ditambahkan!`);
+        
+        // Reset form
+        setName('');
+        setEmail('');
+        setPassword('');
+        setRole('user');
+        setModalVisible(false);
+        
+        // Reload user list
+        loadUsers();
+      } else {
+        throw new Error(result.data.error || 'Gagal membuat pengguna baru');
+      }
+    } catch (error) {
+      console.error('Error creating user:', error);
+      Alert.alert('Error', `Gagal membuat pengguna baru: ${error.message}`);
+    } finally {
+      setProcessingAction(false);
+    }
+  };
+
   const filteredUsers = users.filter(
     (user) =>
       user.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       user.email?.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const renderRoleBadge = (userRole) => {
+    let badgeStyle = styles.roleBadge;
+    let textStyle = styles.roleText;
+    let roleLabel = userRole;
+
+    switch(userRole) {
+      case 'admin':
+        badgeStyle = { ...styles.roleBadge, backgroundColor: '#EDE9FE' };
+        textStyle = { ...styles.roleText, color: '#7C3AED' };
+        roleLabel = 'Admin';
+        break;
+      case 'siswa':
+        badgeStyle = { ...styles.roleBadge, backgroundColor: '#E0F2FE' };
+        textStyle = { ...styles.roleText, color: '#0369A1' };
+        roleLabel = 'Siswa';
+        break;
+      default:
+        badgeStyle = { ...styles.roleBadge, backgroundColor: '#E5E7EB' };
+        textStyle = { ...styles.roleText, color: '#4B5563' };
+        roleLabel = 'Pengguna';
+    }
+
+    return (
+      <View style={badgeStyle}>
+        <Text style={textStyle}>{roleLabel}</Text>
+      </View>
+    );
+  };
 
   if (loading) {
     return (
@@ -199,16 +296,21 @@ export default function ManageUsers() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => router.back()}
+        <TouchableOpacity 
           style={styles.backButton}
+          onPress={() => router.back()}
         >
           <ArrowLeft size={24} color="#1a1a1a" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Kelola Pengguna</Text>
-        <View style={{ width: 24 }} /> {/* Spacer for alignment */}
+        <TouchableOpacity 
+          style={styles.addButton}
+          onPress={() => setModalVisible(true)}
+        >
+          <Plus size={24} color="#7C3AED" />
+        </TouchableOpacity>
       </View>
-
+      
       {/* Search Bar */}
       <View style={styles.searchContainer}>
         <Search size={20} color="#6B7280" />
@@ -235,9 +337,9 @@ export default function ManageUsers() {
         </View>
         <View style={styles.statCard}>
           <Text style={styles.statNumber}>
-            {users.filter(user => !user.isActive).length}
+            {users.filter(user => user.role === 'siswa').length}
           </Text>
-          <Text style={styles.statLabel}>Tidak Aktif</Text>
+          <Text style={styles.statLabel}>Siswa</Text>
         </View>
       </View>
 
@@ -286,11 +388,7 @@ export default function ManageUsers() {
                       {item.isActive ? 'Aktif' : 'Nonaktif'}
                     </Text>
                   </View>
-                  {item.role === 'admin' && (
-                    <View style={styles.roleBadge}>
-                      <Text style={styles.roleText}>Admin</Text>
-                    </View>
-                  )}
+                  {renderRoleBadge(item.role)}
                 </View>
               </View>
             </View>
@@ -323,7 +421,113 @@ export default function ManageUsers() {
         )}
       />
 
-      {processingAction && (
+      {/* Add User Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Tambah Pengguna Baru</Text>
+              <TouchableOpacity 
+                onPress={() => setModalVisible(false)}
+                style={styles.closeButton}
+              >
+                <X size={24} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.modalBody}>
+              <Text style={styles.inputLabel}>Nama Lengkap</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Masukkan nama lengkap"
+                value={name}
+                onChangeText={setName}
+              />
+              
+              <Text style={styles.inputLabel}>Email</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Masukkan email"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                value={email}
+                onChangeText={setEmail}
+              />
+              
+              <Text style={styles.inputLabel}>Password</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Minimal 6 karakter"
+                secureTextEntry
+                value={password}
+                onChangeText={setPassword}
+              />
+              
+              <Text style={styles.inputLabel}>Peran (Role)</Text>
+              <View style={styles.roleSelector}>
+                <TouchableOpacity
+                  style={[
+                    styles.roleOption,
+                    role === 'user' && styles.roleOptionSelected
+                  ]}
+                  onPress={() => setRole('user')}
+                >
+                  <User size={16} color={role === 'user' ? '#7C3AED' : '#6B7280'} />
+                  <Text style={[
+                    styles.roleText,
+                    role === 'user' && styles.roleTextSelected
+                  ]}>Pengguna</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[
+                    styles.roleOption,
+                    role === 'siswa' && styles.roleOptionSelected
+                  ]}
+                  onPress={() => setRole('siswa')}
+                >
+                  <CheckCircle size={16} color={role === 'siswa' ? '#0369A1' : '#6B7280'} />
+                  <Text style={[
+                    styles.roleText,
+                    role === 'siswa' && { color: '#0369A1' }
+                  ]}>Siswa</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+            
+            <View style={styles.modalFooter}>
+              <TouchableOpacity
+                style={[styles.cancelButton]}
+                onPress={() => setModalVisible(false)}
+              >
+                <Text style={styles.cancelButtonText}>Batal</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.submitButton,
+                  !isFormValid && styles.submitButtonDisabled
+                ]}
+                onPress={createNewUser}
+                disabled={!isFormValid || processingAction}
+              >
+                {processingAction ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.submitButtonText}>Tambah Pengguna</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {processingAction && !modalVisible && (
         <View style={styles.processingOverlay}>
           <ActivityIndicator size="large" color="#7C3AED" />
           <Text style={styles.processingText}>Memproses...</Text>
@@ -366,6 +570,9 @@ const styles = StyleSheet.create({
   backButton: {
     padding: 8,
   },
+  addButton: {
+    padding: 8,
+  },
   headerTitle: {
     fontSize: 18,
     fontFamily: 'Poppins_600SemiBold',
@@ -395,6 +602,9 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
     color: '#1F2937',
   },
+  // Rest of the styles remain unchanged
+  
+  // The rest of the style object is the same as in your original code...
   statsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -552,5 +762,122 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_500Medium',
     color: '#4B5563',
     fontSize: 16,
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    width: '100%',
+    maxHeight: '90%',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontFamily: 'Poppins_600SemiBold',
+    color: '#1F2937',
+  },
+  closeButton: {
+    padding: 4,
+  },
+  modalBody: {
+    padding: 16,
+    maxHeight: 400,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontFamily: 'Inter_500Medium',
+    color: '#4B5563',
+    marginBottom: 6,
+    marginTop: 12,
+  },
+  input: {
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    fontFamily: 'Inter_400Regular',
+    color: '#1F2937',
+  },
+  roleSelector: {
+    flexDirection: 'row',
+    marginTop: 8,
+    gap: 12,
+  },
+  roleOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    gap: 8,
+    flex: 1,
+    justifyContent: 'center',
+  },
+  roleOptionSelected: {
+    borderColor: '#7C3AED',
+    backgroundColor: '#F5F3FF',
+  },
+  roleTextSelected: {
+    color: '#7C3AED',
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    gap: 12,
+  },
+  cancelButton: {
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+  },
+  cancelButtonText: {
+    fontSize: 14,
+    fontFamily: 'Inter_500Medium',
+    color: '#4B5563',
+  },
+  submitButton: {
+    backgroundColor: '#7C3AED',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 2,
+  },
+  submitButtonDisabled: {
+    backgroundColor: '#A78BFA',
+  },
+  submitButtonText: {
+    fontSize: 14,
+    fontFamily: 'Inter_600SemiBold',
+    color: '#FFFFFF',
   },
 });

@@ -7,12 +7,21 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
-  Image,
   StatusBar,
 } from 'react-native';
 import { router } from 'expo-router';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { 
+  collection, 
+  getDocs, 
+  query, 
+  onSnapshot, 
+  orderBy, 
+  limit,
+  doc,
+  getDoc,
+  collectionGroup
+} from 'firebase/firestore';
+import { db, auth } from '@/lib/firebase';
 import {
   Users,
   FileText,
@@ -25,54 +34,236 @@ import {
   BarChart2,
   Bell,
   Calendar,
+  CreditCard,
 } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import { LineChart, PieChart } from 'react-native-chart-kit';
+import { Dimensions } from 'react-native';
+
+const screenWidth = Dimensions.get('window').width - 32; // Account for padding
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState({
     totalUsers: 0,
     totalOrders: 0,
-    totalRevenue: 0,
+    totalProducts: 0,
     pendingOrders: 0,
     cancelledOrders: 0,
     approvedOrders: 0,
     processingOrders: 0,
     totalProduk: 0,
     totalBerita: 0,
+    totalRevenue: 0,
   });
+  const [recentOrders, setRecentOrders] = useState([]);
+  const [monthlyData, setMonthlyData] = useState({
+    labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+    datasets: [{ data: [0, 0, 0, 0, 0, 0] }]
+  });
+  const [categoryData, setCategoryData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [name, setName] = useState('Admin');
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   useEffect(() => {
-    loadStats();
+    // Get admin name from Firebase auth
+    const getCurrentAdmin = async () => {
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        setName(currentUser.name || 'Admin');
+      }
+    };
+    
+    getCurrentAdmin();
+    loadStats(); // Initial data load
+    setupRealtimeListeners();
+    
+    return () => {
+      // Clean up listeners when component unmounts
+      unsubscribeFromFirestore();
+    };
   }, []);
 
+  // Collection listeners
+  let unsubscribeUsers = null;
+  let unsubscribeOrders = null;
+  let unsubscribeProducts = null;
+  let unsubscribeBerita = null;
+  let unsubscribeNotifications = null;
+
+  const unsubscribeFromFirestore = () => {
+    if (unsubscribeUsers) unsubscribeUsers();
+    if (unsubscribeOrders) unsubscribeOrders();
+    if (unsubscribeProducts) unsubscribeProducts();
+    if (unsubscribeBerita) unsubscribeBerita();
+    if (unsubscribeNotifications) unsubscribeNotifications();
+  };
+
+  // Initial data load with error handling
   const loadStats = async () => {
     try {
       setLoading(true);
-
-      const usersSnap = await getDocs(collection(db, 'users'));
-      const ordersSnap = await getDocs(collection(db, 'orders'));
-      const produkSnap = await getDocs(collection(db, 'produk'));
-      const beritaSnap = await getDocs(collection(db, 'berita'));
-
-      const orders = ordersSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      const approvedOrders = orders.filter((order) => order.status === 'approved');
-      const totalRevenue = approvedOrders.reduce((sum, order) => sum + (order.price || 0), 0);
-
-      setStats({
-        totalUsers: usersSnap.size,
-        totalOrders: ordersSnap.size,
-        totalRevenue,
-        pendingOrders: orders.filter((order) => order.status === 'pending').length,
-        cancelledOrders: orders.filter((order) => order.status === 'cancelled').length,
-        approvedOrders: approvedOrders.length,
-        processingOrders: orders.filter((order) => order.status === 'processing').length,
-        totalProduk: produkSnap.size,
-        totalBerita: beritaSnap.size,
-      });
+      console.log("Loading initial stats...");
+      
+      // Load users data
+      try {
+        const usersSnapshot = await getDocs(collection(db, 'users'));
+        setStats(prevStats => ({ ...prevStats, totalUsers: usersSnapshot.size }));
+        console.log(`Loaded ${usersSnapshot.size} users`);
+      } catch (error) {
+        console.error("Error loading users:", error);
+      }
+      
+      // Load products data
+      try {
+        const productsSnapshot = await getDocs(collection(db, 'products'));
+        setStats(prevStats => ({ ...prevStats, totalProduk: productsSnapshot.size }));
+        console.log(`Loaded ${productsSnapshot.size} products`);
+        
+        // Process category data
+        const categories = {};
+        productsSnapshot.docs.forEach(doc => {
+          const product = doc.data();
+          const category = product.category || 'Uncategorized';
+          categories[category] = (categories[category] || 0) + 1;
+        });
+        
+        // Format for pie chart
+        const pieData = Object.keys(categories).map((key, index) => {
+          const colors = ['#6366F1', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
+          return {
+            name: key,
+            population: categories[key],
+            color: colors[index % colors.length],
+            legendFontColor: '#7F7F7F',
+            legendFontSize: 12
+          };
+        });
+        
+        setCategoryData(pieData);
+      } catch (error) {
+        console.error("Error loading products:", error);
+      }
+      
+      // Load news/berita data with proper error handling
+      try {
+        // Try first with collection reference
+        const beritaRef = collection(db, 'news');
+        const beritaSnapshot = await getDocs(beritaRef);
+        
+        if (beritaSnapshot.empty) {
+          // If collection is empty, try alternative collection name 'berita'
+          const altBeritaRef = collection(db, 'berita');
+          const altBeritaSnapshot = await getDocs(altBeritaRef);
+          setStats(prevStats => ({ ...prevStats, totalBerita: altBeritaSnapshot.size }));
+          console.log(`Loaded ${altBeritaSnapshot.size} berita (alternative collection)`);
+        } else {
+          setStats(prevStats => ({ ...prevStats, totalBerita: beritaSnapshot.size }));
+          console.log(`Loaded ${beritaSnapshot.size} news`);
+        }
+      } catch (error) {
+        console.error("Error loading news/berita:", error);
+        // Set to 0 if both attempts fail
+        setStats(prevStats => ({ ...prevStats, totalBerita: 0 }));
+      }
+      
+      // Load orders data with enhanced error handling
+      try {
+        const ordersRef = collection(db, 'orders');
+        const ordersSnapshot = await getDocs(ordersRef);
+        
+        if (ordersSnapshot.empty) {
+          console.log("Orders collection is empty or doesn't exist");
+          setStats(prevStats => ({ 
+            ...prevStats, 
+            totalOrders: 0,
+            pendingOrders: 0,
+            processingOrders: 0,
+            approvedOrders: 0,
+            cancelledOrders: 0,
+            totalRevenue: 0
+          }));
+        } else {
+          const orders = [];
+          let totalRevenue = 0;
+          let approvedCount = 0;
+          let pendingCount = 0;
+          let processingCount = 0;
+          let cancelledCount = 0;
+          
+          ordersSnapshot.forEach(doc => {
+            const orderData = doc.data();
+            orderData.id = doc.id;
+            orders.push(orderData);
+            
+            // Count by status
+            switch (orderData.status) {
+              case 'approved':
+                approvedCount++;
+                // Calculate revenue (handle potential missing price) ONLY for approved orders
+                if (orderData.price && !isNaN(parseFloat(orderData.price))) {
+                  totalRevenue += parseFloat(orderData.price);
+                } else if (orderData.totalPrice && !isNaN(parseFloat(orderData.totalPrice))) {
+                  totalRevenue += parseFloat(orderData.totalPrice);
+                } else if (orderData.amount && !isNaN(parseFloat(orderData.amount))) {
+                  totalRevenue += parseFloat(orderData.amount);
+                } else if (orderData.totalamount && !isNaN(parseFloat(orderData.totalamount))) {
+                  totalRevenue += parseFloat(orderData.totalamount);
+                }
+                break;
+              case 'pending':
+                pendingCount++;
+                break;
+              case 'processing':
+                processingCount++;
+                break;
+              case 'cancelled':
+                cancelledCount++;
+                break;
+            }
+          });
+          
+          console.log(`Loaded ${orders.length} orders with ${totalRevenue} revenue`);
+          
+          // Sort by date and get recent orders
+          const recentOrdersList = orders
+            .sort((a, b) => {
+              const dateA = a.createdAt?.seconds || 0;
+              const dateB = b.createdAt?.seconds || 0;
+              return dateB - dateA;
+            })
+            .slice(0, 5);
+            
+          setRecentOrders(recentOrdersList);
+          
+          // Update stats
+          setStats(prevStats => ({
+            ...prevStats,
+            totalOrders: orders.length,
+            pendingOrders: pendingCount,
+            processingOrders: processingCount,
+            approvedOrders: approvedCount,
+            cancelledOrders: cancelledCount,
+            totalRevenue: totalRevenue
+          }));
+          
+          // Update monthly data for line chart
+          updateMonthlyData(orders);
+        }
+      } catch (error) {
+        console.error("Error loading orders:", error);
+        setStats(prevStats => ({ 
+          ...prevStats, 
+          totalOrders: 0,
+          pendingOrders: 0,
+          processingOrders: 0,
+          approvedOrders: 0,
+          cancelledOrders: 0,
+          totalRevenue: 0
+        }));
+      }
     } catch (error) {
       console.error('Error loading stats:', error);
     } finally {
@@ -81,11 +272,259 @@ export default function AdminDashboard() {
     }
   };
 
+  const setupRealtimeListeners = () => {
+    // Listen for users changes
+    try {
+      unsubscribeUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+        const totalUsers = snapshot.size;
+        setStats(prevStats => ({ ...prevStats, totalUsers }));
+        console.log(`Realtime update: ${totalUsers} users`);
+      }, (error) => {
+        console.error("Error in users listener:", error);
+      });
+    } catch (error) {
+      console.error("Failed to set up users listener:", error);
+    }
+
+    // Listen for products changes
+    try {
+      unsubscribeProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
+        const totalProduk = snapshot.size;
+        setStats(prevStats => ({ ...prevStats, totalProduk }));
+        console.log(`Realtime update: ${totalProduk} products`);
+        
+        // Process category data for pie chart
+        const categories = {};
+        snapshot.docs.forEach(doc => {
+          const product = doc.data();
+          const category = product.category || 'Uncategorized';
+          if (categories[category]) {
+            categories[category]++;
+          } else {
+            categories[category] = 1;
+          }
+        });
+        
+        // Convert to chart format
+        const pieData = Object.keys(categories).map((key, index) => {
+          // Color palette for chart
+          const colors = ['#6366F1', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
+          return {
+            name: key,
+            population: categories[key],
+            color: colors[index % colors.length],
+            legendFontColor: '#7F7F7F',
+            legendFontSize: 12
+          };
+        });
+        
+        setCategoryData(pieData);
+      }, (error) => {
+        console.error("Error in products listener:", error);
+      });
+    } catch (error) {
+      console.error("Failed to set up products listener:", error);
+    }
+
+    // Listen for news/berita changes with fallback
+    try {
+      // Try primary collection name 'news'
+      const newsRef = collection(db, 'news');
+      unsubscribeBerita = onSnapshot(newsRef, (snapshot) => {
+        if (snapshot.empty) {
+          // If empty, try alternative collection name
+          try {
+            const altBeritaRef = collection(db, 'berita');
+            onSnapshot(altBeritaRef, (altSnapshot) => {
+              const totalBerita = altSnapshot.size;
+              setStats(prevStats => ({ ...prevStats, totalBerita }));
+              console.log(`Realtime update: ${totalBerita} berita (from alt collection)`);
+            }, (error) => {
+              console.error("Error in alt berita listener:", error);
+            });
+          } catch (innerError) {
+            console.error("Failed to set up alternative berita listener:", innerError);
+          }
+        } else {
+          const totalBerita = snapshot.size;
+          setStats(prevStats => ({ ...prevStats, totalBerita }));
+          console.log(`Realtime update: ${totalBerita} news`);
+        }
+      }, (error) => {
+        console.error("Error in news listener:", error);
+      });
+    } catch (error) {
+      console.error("Failed to set up news listener:", error);
+    }
+
+    // Listen for orders changes with enhanced error handling
+    try {
+      unsubscribeOrders = onSnapshot(collection(db, 'orders'), (snapshot) => {
+        if (snapshot.empty) {
+          console.log("No orders data available in realtime listener");
+          return;
+        }
+        
+        const orders = [];
+        let totalRevenue = 0;
+        let approvedCount = 0;
+        let pendingCount = 0;
+        let processingCount = 0;
+        let cancelledCount = 0;
+        
+        snapshot.docs.forEach(doc => {
+          const orderData = doc.data();
+          orderData.id = doc.id;
+          orders.push(orderData);
+          
+          // Count by status
+          switch (orderData.status) {
+            case 'approved':
+              approvedCount++;
+              // Calculate revenue (handle potential missing price) ONLY for approved orders
+              if (orderData.price && !isNaN(parseFloat(orderData.price))) {
+                totalRevenue += parseFloat(orderData.price);
+              } else if (orderData.totalPrice && !isNaN(parseFloat(orderData.totalPrice))) {
+                totalRevenue += parseFloat(orderData.totalPrice);
+              } else if (orderData.amount && !isNaN(parseFloat(orderData.amount))) {
+                totalRevenue += parseFloat(orderData.amount);
+              } else if (orderData.totalamount && !isNaN(parseFloat(orderData.totalamount))) {
+                totalRevenue += parseFloat(orderData.totalamount);
+              }
+              break;
+            case 'pending':
+              pendingCount++;
+              break;
+            case 'processing':
+              processingCount++;
+              break;
+            case 'cancelled':
+              cancelledCount++;
+              break;
+          }
+        });
+        
+        console.log(`Realtime update: ${orders.length} orders with ${totalRevenue} revenue`);
+        
+        // Sort by date and get recent orders
+        const recentOrdersList = orders
+          .sort((a, b) => {
+            const dateA = a.createdAt?.seconds || 0;
+            const dateB = b.createdAt?.seconds || 0;
+            return dateB - dateA;
+          })
+          .slice(0, 5);
+          
+        setRecentOrders(recentOrdersList);
+        
+        // Update stats
+        setStats(prevStats => ({
+          ...prevStats,
+          totalOrders: orders.length,
+          pendingOrders: pendingCount,
+          processingOrders: processingCount,
+          approvedOrders: approvedCount,
+          cancelledOrders: cancelledCount,
+          totalRevenue: totalRevenue
+        }));
+        
+        // Update monthly data for chart
+        updateMonthlyData(orders);
+      }, (error) => {
+        console.error("Error in orders listener:", error);
+      });
+    } catch (error) {
+      console.error("Failed to set up orders listener:", error);
+    }
+    
+    // Listen for notifications
+    try {
+      unsubscribeNotifications = onSnapshot(
+        query(collection(db, 'notifications'), 
+          orderBy('createdAt', 'desc'), 
+          limit(20)
+        ), 
+        (snapshot) => {
+          const unread = snapshot.docs.filter(doc => !doc.data().read).length;
+          setUnreadNotifications(unread);
+        }, 
+        (error) => {
+          console.error("Error in notifications listener:", error);
+        }
+      );
+    } catch (error) {
+      console.error("Failed to set up notifications listener:", error);
+    }
+  };
+
+  const updateMonthlyData = (orders) => {
+    // Group orders by month
+    const months = [0, 0, 0, 0, 0, 0];
+    const currentMonth = new Date().getMonth();
+    
+    orders.forEach(order => {
+      if (order.createdAt) {
+        let orderDate;
+        
+        // Handle different timestamp formats
+        if (order.createdAt.seconds) {
+          // Firestore Timestamp object
+          orderDate = new Date(order.createdAt.seconds * 1000);
+        } else if (order.createdAt.toDate) {
+          // Firestore Timestamp with toDate method
+          orderDate = order.createdAt.toDate();
+        } else if (typeof order.createdAt === 'string') {
+          // ISO string or similar
+          orderDate = new Date(order.createdAt);
+        } else {
+          // Skip if format can't be determined
+          return;
+        }
+        
+        const orderMonth = orderDate.getMonth();
+        
+        // Only count orders from the last 6 months
+        const monthDiff = currentMonth - orderMonth;
+        if (monthDiff >= 0 && monthDiff < 6) {
+          months[5 - monthDiff] += 1;
+        } else if (monthDiff < 0) {
+          // Handle wrap-around for previous year
+          const wrappedDiff = 12 - orderMonth + currentMonth;
+          if (wrappedDiff < 6) {
+            months[5 - wrappedDiff] += 1;
+          }
+        }
+      }
+    });
+    
+    // Get month names for the last 6 months
+    const monthNames = [];
+    for (let i = 5; i >= 0; i--) {
+      const month = new Date();
+      month.setMonth(month.getMonth() - i);
+      monthNames.push(month.toLocaleString('default', { month: 'short' }));
+    }
+    
+    setMonthlyData({
+      labels: monthNames,
+      datasets: [{ data: months }]
+    });
+  };
+
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 12) return 'Selamat pagi';
     if (hour < 18) return 'Selamat sore';
     return 'Selamat malam';
+  };
+
+  const handleLogout = async () => {
+    try {
+      await auth.signOut();
+      router.replace('/login');
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
   };
 
   if (loading) {
@@ -103,6 +542,30 @@ export default function AdminDashboard() {
       currency: 'IDR',
       minimumFractionDigits: 0,
     }).format(amount);
+  };
+
+  const formatDate = (timestamp) => {
+    if (!timestamp) return 'N/A';
+    
+    let date;
+    if (timestamp.seconds) {
+      // Firestore Timestamp object
+      date = new Date(timestamp.seconds * 1000);
+    } else if (timestamp.toDate) {
+      // Firestore Timestamp with toDate method
+      date = timestamp.toDate();
+    } else if (typeof timestamp === 'string') {
+      // ISO string or similar
+      date = new Date(timestamp);
+    } else {
+      return 'Invalid date';
+    }
+    
+    return date.toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric'
+    });
   };
 
   const renderOrderStatusBar = () => {
@@ -149,10 +612,7 @@ export default function AdminDashboard() {
             <Text style={styles.title}>Dashboard Admin</Text>
           </View>
           <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.notificationButton}>
-              <Bell size={20} color="#6B7280" />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => router.push('/login')} style={styles.logoutButton}>
+            <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
               <LogOut size={20} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
@@ -181,13 +641,49 @@ export default function AdminDashboard() {
           <View style={styles.quickStatItem}>
             <Text style={styles.quickStatLabel}>Total Pendapatan</Text>
             <Text style={styles.quickStatValue}>{formatCurrency(stats.totalRevenue)}</Text>
-          </View>
-          <View style={styles.quickStatDivider} />
-          <View style={styles.quickStatItem}>
-            <Text style={styles.quickStatLabel}>Total Pesanan</Text>
-            <Text style={styles.quickStatValue}>{stats.totalOrders}</Text>
-          </View>
+            </View>
         </LinearGradient>
+
+        {/* Recent Orders */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Pesanan Terbaru</Text>
+          <TouchableOpacity onPress={loadStats} style={styles.refreshButton}>
+            <RefreshCw size={16} color="#6366F1" />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.recentOrdersContainer}>
+          {recentOrders.length > 0 ? (
+            recentOrders.map((order, index) => (
+              <TouchableOpacity 
+                key={order.id || order.orderNumber || index}
+                style={styles.orderItem}
+                >
+                <View style={styles.orderItemLeft}>
+                  <View style={[styles.orderStatusIndicator, {
+                    backgroundColor: 
+                      order.status === 'approved' ? '#10B981' :
+                      order.status === 'processing' ? '#3B82F6' :
+                      order.status === 'pending' ? '#F59E0B' : '#EF4444'
+                  }]} />
+                  <View>
+                    <Text style={styles.orderItemTitle}>{order.productName?.slice(0, 18) || 'Order'}</Text>
+                    <Text style={styles.orderItemSubtitle}>
+                      {order.customerName || 'User'} · {formatDate(order.createdAt)}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.orderItemPrice}>
+                  {formatCurrency(order.amount || order.totalamount || order.price || order.totalPrice || 0)}
+                </Text>
+              </TouchableOpacity>
+            ))
+          ) : (
+            <View style={styles.noOrdersContainer}>
+              <Text style={styles.noOrdersText}>Tidak ada pesanan terbaru</Text>
+            </View>
+          )}
+        </View>
 
         {/* Stats Grid */}
         <Text style={styles.sectionTitle}>Ringkasan Statistik</Text>
@@ -211,13 +707,41 @@ export default function AdminDashboard() {
             bg="#FFFBEB" 
           />
           <StatCard 
-            icon={<BarChart2 size={22} color="#7C3AED" />} 
-            label="Top Kategori" 
-            value="Elektronik" 
+            icon={<CreditCard size={22} color="#7C3AED" />} 
+            label="Pesanan Selesai" 
+            value={stats.approvedOrders} 
             bg="#F5F3FF" 
           />
         </View>
 
+        {/* Monthly Order Chart */}
+        <View style={styles.chartContainer}>
+          <Text style={styles.chartTitle}>Tren Pesanan Bulanan</Text>
+          <LineChart
+            data={monthlyData}
+            width={screenWidth}
+            height={220}
+            chartConfig={{
+              backgroundColor: '#FFFFFF',
+              backgroundGradientFrom: '#FFFFFF',
+              backgroundGradientTo: '#FFFFFF',
+              decimalPlaces: 0,
+              color: (opacity = 1) => `rgba(99, 102, 241, ${opacity})`,
+              labelColor: (opacity = 1) => `rgba(107, 114, 128, ${opacity})`,
+              style: {
+                borderRadius: 16
+              },
+              propsForDots: {
+                r: '6',
+                strokeWidth: '2',
+                stroke: '#FFFFFF',
+              }
+            }}
+            bezier
+            style={styles.chart}
+          />
+        </View>
+      
         {/* Order Status */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Status Pesanan</Text>
@@ -266,18 +790,11 @@ export default function AdminDashboard() {
             onPress={() => router.push('/admin/orders')}
           />
           <MenuItem
-            title="Kelola Produk"
-            description="Tambah, edit, atau hapus produk"
+            title="Kelola Pengumuman"
+            description="Tambah dan kelola pengumuman"
             icon={<Database size={22} color="#FFFFFF" />}
             iconBg="#F59E0B"
-            onPress={() => router.push('/admin/produk')}
-          />
-          <MenuItem
-            title="Kelola Berita"
-            description="Kelola artikel dan berita"
-            icon={<FileText size={22} color="#FFFFFF" />}
-            iconBg="#EC4899"
-            onPress={() => router.push('/admin/berita')}
+            onPress={() => router.push('/admin/pengumuman')}
           />
           <MenuItem
             title="Data Master"
@@ -301,268 +818,339 @@ const StatCard = ({ icon, label, value, bg }) => (
 );
 
 const MenuItem = ({ title, description, icon, iconBg, onPress }) => (
-  <TouchableOpacity style={styles.menuCard} onPress={onPress} activeOpacity={0.8}>
-    <View style={styles.menuContent}>
-      <View style={[styles.menuIcon, { backgroundColor: iconBg }]}>{icon}</View>
-      <View style={styles.menuText}>
-        <Text style={styles.menuTitle}>{title}</Text>
-        <Text style={styles.menuDescription}>{description}</Text>
-      </View>
+  <TouchableOpacity style={styles.menuItem} onPress={onPress}>
+    <View style={[styles.menuIconContainer, { backgroundColor: iconBg }]}>
+      {icon}
     </View>
-    <ArrowRight size={18} color="#6B7280" />
+    <View style={styles.menuContent}>
+      <Text style={styles.menuTitle}>{title}</Text>
+      <Text style={styles.menuDescription}>{description}</Text>
+    </View>
+    <ArrowRight size={18} color="#9CA3AF" />
   </TouchableOpacity>
 );
 
+// Styles for the component
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#F9FAFB',
   },
-  container: { 
-    flex: 1, 
-    backgroundColor: '#F9FAFB', 
-    paddingHorizontal: 16 
+  container: {
+    flex: 1,
+    padding: 16,
+    backgroundColor: '#F9FAFB',
   },
-  loadingContainer: { 
-    flex: 1, 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    backgroundColor: '#F9FAFB' 
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
   },
-  loadingText: { 
-    marginTop: 16, 
-    fontFamily: 'Inter_500Medium', 
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
     color: '#6B7280',
-    fontSize: 15
   },
-  header: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    alignItems: 'center', 
-    paddingVertical: 24 
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  greeting: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 4,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#111827',
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12
   },
   notificationButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#F3F4F6',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
     justifyContent: 'center',
-    alignItems: 'center'
+    alignItems: 'center',
+    marginRight: 8,
   },
-  greeting: { 
-    fontSize: 14, 
-    fontFamily: 'Inter_500Medium', 
-    color: '#6B7280' 
+  notificationBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    backgroundColor: '#EF4444',
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  title: { 
-    fontSize: 24, 
-    fontFamily: 'Poppins_600SemiBold', 
-    color: '#111827', 
-    marginTop: 4 
+  notificationCount: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
-  logoutButton: { 
-    backgroundColor: '#6366F1', 
+  logoutButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    justifyContent: 'center', 
+    backgroundColor: '#6366F1',
+    justifyContent: 'center',
     alignItems: 'center',
-    elevation: 2,
-    shadowColor: '#6366F1',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3
   },
   dateContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 16,
-    gap: 6
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
   },
   dateText: {
     fontSize: 14,
-    fontFamily: 'Inter_400Regular',
-    color: '#6B7280'
+    color: '#6B7280',
+    marginLeft: 8,
   },
   quickStatsCard: {
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 24,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    shadowColor: '#6366F1',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  quickStatItem: {
+    alignItems: 'flex-start',
+  },
+  quickStatLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginBottom: 4,
+  },
+  quickStatValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 2,
+  },
+  quickStatNote: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.7)',
+  },
+  sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    elevation: 3,
-    shadowColor: '#6366F1',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5
+    marginBottom: 12,
   },
-  quickStatItem: {
-    flex: 1,
-    alignItems: 'center'
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#111827',
+    marginBottom: 12,
   },
-  quickStatLabel: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 13,
-    fontFamily: 'Inter_500Medium',
-    marginBottom: 6
+  refreshButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#EEF2FF',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  quickStatValue: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontFamily: 'Poppins_700Bold'
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 20,
+    justifyContent: 'space-between',
   },
-  quickStatDivider: {
-    width: 1,
-    height: '70%',
-    backgroundColor: 'rgba(255,255,255,0.3)'
-  },
-  sectionHeader: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    alignItems: 'center', 
-    marginBottom: 16 
-  },
-  sectionTitle: { 
-    fontSize: 18, 
-    fontFamily: 'Poppins_600SemiBold', 
-    color: '#1F2937', 
-    marginBottom: 16 
-  },
-  refreshButton: { 
-    backgroundColor: '#EEF2FF', 
-    padding: 8, 
-    borderRadius: 20 
-  },
-  statsGrid: { 
-    flexDirection: 'row', 
-    flexWrap: 'wrap', 
-    justifyContent: 'space-between', 
-    rowGap: 16,
-    marginBottom: 24
-  },
-  statCard: { 
-    width: '48%', 
-    borderRadius: 16, 
+  statCard: {
+    width: '48%',
+    borderRadius: 12,
     padding: 16,
-    paddingVertical: 20,
-    elevation: 1,
+    marginBottom: 12,
+    alignItems: 'flex-start',
+  },
+  statIconContainer: {
+    marginBottom: 12,
+  },
+  statValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  chartContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
-    shadowRadius: 3
+    shadowRadius: 5,
+    elevation: 1,
   },
-  statIconContainer: { 
-    backgroundColor: 'rgba(255,255,255,0.7)', 
-    width: 44, 
-    height: 44, 
-    borderRadius: 12, 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    marginBottom: 12 
+  chartTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#111827',
+    marginBottom: 12,
   },
-  statValue: { 
-    fontSize: 24, 
-    fontFamily: 'Poppins_600SemiBold', 
-    color: '#111827', 
-    marginBottom: 4 
+  chart: {
+    marginVertical: 8,
+    borderRadius: 12,
   },
-  statLabel: { 
-    fontSize: 13, 
-    fontFamily: 'Inter_500Medium', 
-    color: '#6B7280' 
+  recentOrdersContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 1,
+  },
+  orderItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  orderItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  orderStatusIndicator: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 12,
+  },
+  orderItemTitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#111827',
+  },
+  orderItemSubtitle: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  orderItemPrice: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#111827',
+  },
+  noOrdersContainer: {
+    padding: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noOrdersText: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+  },
+  menuContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 1,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  menuIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  menuContent: {
+    flex: 1,
+  },
+  menuTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#111827',
+  },
+  menuDescription: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
   },
   statusCardContainer: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    borderRadius: 12,
     padding: 16,
-    marginBottom: 24,
-    elevation: 1,
+    marginBottom: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
-    shadowRadius: 3
+    shadowRadius: 5,
+    elevation: 1,
   },
   progressBarContainer: {
-    marginVertical: 8,
+    marginBottom: 16,
   },
   progressBar: {
-    height: 10,
-    borderRadius: 5,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: '#F3F4F6',
     flexDirection: 'row',
-    overflow: 'hidden'
+    overflow: 'hidden',
   },
   progressSegment: {
-    height: '100%'
+    height: '100%',
   },
   statusLegendContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginTop: 12,
-    gap: 16
+    justifyContent: 'space-between',
   },
   statusLegendItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6
+    width: '48%',
+    marginBottom: 8,
   },
   statusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 8,
   },
   statusText: {
-    fontSize: 13,
-    fontFamily: 'Inter_400Regular',
-    color: '#4B5563'
-  },
-  menuContainer: { 
-    marginBottom: 32, 
-    gap: 12
-  },
-  menuCard: { 
-    backgroundColor: '#FFFFFF', 
-    borderRadius: 16, 
-    padding: 16, 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    justifyContent: 'space-between',
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3
-  },
-  menuContent: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 14 
-  },
-  menuIcon: { 
-    width: 44, 
-    height: 44, 
-    borderRadius: 12, 
-    justifyContent: 'center', 
-    alignItems: 'center' 
-  },
-  menuText: { 
-    flex: 1 
-  },
-  menuTitle: { 
-    fontSize: 16, 
-    fontFamily: 'Poppins_600SemiBold', 
-    color: '#111827', 
-    marginBottom: 2 
-  },
-  menuDescription: { 
-    fontSize: 13, 
-    fontFamily: 'Inter_400Regular', 
-    color: '#6B7280' 
+    fontSize: 12,
+    color: '#6B7280',
   },
 });

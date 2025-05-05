@@ -11,6 +11,12 @@ import {
   Modal,
   TextInput,
   ScrollView,
+  Image,
+  Dimensions,
+  StatusBar,
+  SafeAreaView,
+  Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
 import {
   collection,
@@ -19,14 +25,52 @@ import {
   doc,
   updateDoc,
   orderBy,
-  where,
   Timestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { schedulePushNotification } from '@/lib/notifications';
-import { Package, Clock, CheckCircle, XCircle, Search, Filter, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { 
+  Package, 
+  Clock, 
+  CheckCircle, 
+  XCircle, 
+  Search, 
+  Filter, 
+  ChevronDown, 
+  ChevronUp,
+  X,
+  FileText,
+  Calendar,
+  DollarSign,
+  MessageSquare,
+  User,
+  Mail,
+  Phone,
+  Info,
+  Sliders,
+  RefreshCw,
+  ChevronRight
+} from 'lucide-react-native';
 import { Picker } from '@react-native-picker/picker';
 import { BlurView } from 'expo-blur';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { 
+  useSharedValue, 
+  useAnimatedStyle, 
+  withTiming,
+  withSpring,
+  Easing,
+  FadeIn,
+  FadeOut,
+  SlideInRight,
+  SlideOutRight,
+  SlideInUp,
+  SlideOutDown
+} from 'react-native-reanimated';
+
+const { width, height } = Dimensions.get('window');
+const isIOS = Platform.OS === 'ios';
 
 const ORDER_STATUS = {
   pending: {
@@ -41,7 +85,7 @@ const ORDER_STATUS = {
     icon: Package,
     bgColor: '#EFF6FF',
   },
-  completed: {
+  approved: {
     label: 'Selesai',
     color: '#10B981',
     icon: CheckCircle,
@@ -56,32 +100,73 @@ const ORDER_STATUS = {
 };
 
 const STATUS_OPTIONS = [
-  { label: 'Semua Status', value: 'all' },
+  { label: 'Semua', value: 'all' },
   { label: 'Menunggu', value: 'pending' },
   { label: 'Diproses', value: 'processing' },
-  { label: 'Selesai', value: 'completed' },
+  { label: 'Selesai', value: 'approved' },
   { label: 'Dibatalkan', value: 'cancelled' },
 ];
 
+const SORT_OPTIONS = [
+  { label: 'Terbaru', value: 'newest' },
+  { label: 'Terlama', value: 'oldest' },
+  { label: 'Harga Tertinggi', value: 'price_high' },
+  { label: 'Harga Terendah', value: 'price_low' },
+];
+
+const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
+
 export default function ManageOrders() {
+  const insets = useSafeAreaInsets();
   const [orders, setOrders] = useState([]);
   const [filteredOrders, setFilteredOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [sortOption, setSortOption] = useState('newest');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [noteModalVisible, setNoteModalVisible] = useState(false);
   const [adminNote, setAdminNote] = useState('');
+  const [actionInProgress, setActionInProgress] = useState(false);
+  const [expandedOrderId, setExpandedOrderId] = useState(null);
+  const [initialLoad, setInitialLoad] = useState(true);
 
+  const filterHeight = useSharedValue(0);
+  const filterOpacity = useSharedValue(0);
+  
   useEffect(() => {
     loadOrders();
+    // Clean up expanded order when component unmounts
+    return () => {
+      setExpandedOrderId(null);
+      setSelectedOrder(null);
+    };
   }, []);
 
   useEffect(() => {
     filterOrders();
-  }, [orders, searchQuery, statusFilter]);
+  }, [orders, searchQuery, statusFilter, sortOption]);
+
+  useEffect(() => {
+    // Animate the filter container
+    if (showFilters) {
+      filterHeight.value = withTiming(130, { duration: 300, easing: Easing.bezier(0.25, 0.1, 0.25, 1) });
+      filterOpacity.value = withTiming(1, { duration: 400 });
+    } else {
+      filterHeight.value = withTiming(0, { duration: 300, easing: Easing.bezier(0.25, 0.1, 0.25, 1) });
+      filterOpacity.value = withTiming(0, { duration: 200 });
+    }
+  }, [showFilters]);
+
+  const animatedFilterStyle = useAnimatedStyle(() => {
+    return {
+      height: filterHeight.value,
+      opacity: filterOpacity.value,
+      overflow: 'hidden',
+    };
+  });
 
   const loadOrders = async () => {
     try {
@@ -94,12 +179,6 @@ export default function ManageOrders() {
       
       // Get the snapshot
       const querySnapshot = await getDocs(q);
-      
-      if (querySnapshot.empty) {
-        console.log('No orders found');
-      } else {
-        console.log(`Found ${querySnapshot.size} orders`);
-      }
       
       // Process the results
       const ordersData = querySnapshot.docs.map((doc) => {
@@ -118,17 +197,19 @@ export default function ManageOrders() {
       });
       
       setOrders(ordersData);
-      console.log('Orders loaded:', ordersData.length);
     } catch (error) {
       console.error('Error loading orders:', error);
       Alert.alert('Error', 'Gagal memuat pesanan: ' + error.message);
     } finally {
       setLoading(false);
       setRefreshing(false);
+      setInitialLoad(false);
     }
   };
 
   const filterOrders = () => {
+    if (!orders.length) return;
+    
     let result = [...orders];
     
     // Filter by status
@@ -146,19 +227,34 @@ export default function ManageOrders() {
       );
     }
     
+    // Sort orders
+    switch (sortOption) {
+      case 'newest':
+        result.sort((a, b) => b.createdAt - a.createdAt);
+        break;
+      case 'oldest':
+        result.sort((a, b) => a.createdAt - b.createdAt);
+        break;
+      case 'price_high':
+        result.sort((a, b) => (b.amount || 0) - (a.amount || 0));
+        break;
+      case 'price_low':
+        result.sort((a, b) => (a.amount || 0) - (b.amount || 0));
+        break;
+    }
+    
     setFilteredOrders(result);
   };
 
   const updateOrderStatus = async (orderId, newStatus) => {
     try {
+      setActionInProgress(true);
       const orderRef = doc(db, 'orders', orderId);
       
       await updateDoc(orderRef, {
         status: newStatus,
         updatedAt: new Date(),
       });
-
-      console.log(`Order ${orderId} status updated to ${newStatus}`);
 
       // Send notification
       let notificationTitle = '';
@@ -169,7 +265,7 @@ export default function ManageOrders() {
           notificationTitle = 'Pesanan Diproses';
           notificationBody = 'Pesanan Anda sedang dikerjakan oleh tim kami';
           break;
-        case 'completed':
+        case 'approved':
           notificationTitle = 'Pesanan Selesai';
           notificationBody = 'Pesanan Anda telah selesai dikerjakan';
           break;
@@ -188,11 +284,15 @@ export default function ManageOrders() {
       }
       
       // Reload orders to reflect the changes
-      loadOrders();
+      await loadOrders();
+      
+      // Show success toast
       Alert.alert('Sukses', `Status pesanan berhasil diubah menjadi ${ORDER_STATUS[newStatus].label}`);
     } catch (error) {
       console.error('Error updating order status:', error);
       Alert.alert('Error', 'Gagal memperbarui status pesanan: ' + error.message);
+    } finally {
+      setActionInProgress(false);
     }
   };
 
@@ -200,6 +300,7 @@ export default function ManageOrders() {
     if (!selectedOrder) return;
     
     try {
+      setActionInProgress(true);
       const orderRef = doc(db, 'orders', selectedOrder.id);
       
       await updateDoc(orderRef, {
@@ -207,99 +308,207 @@ export default function ManageOrders() {
         updatedAt: new Date(),
       });
       
-      console.log(`Admin note updated for order ${selectedOrder.id}`);
       setNoteModalVisible(false);
       
       // Reload orders to reflect the changes
-      loadOrders();
+      await loadOrders();
       Alert.alert('Sukses', 'Catatan admin berhasil disimpan');
     } catch (error) {
       console.error('Error saving admin note:', error);
       Alert.alert('Error', 'Gagal menyimpan catatan: ' + error.message);
+    } finally {
+      setActionInProgress(false);
     }
   };
 
-  const renderOrderItem = ({ item }) => {
+  const toggleOrderExpand = (orderId) => {
+    setExpandedOrderId(expandedOrderId === orderId ? null : orderId);
+  };
+
+  const renderStatusBadge = (status) => {
+    const statusInfo = ORDER_STATUS[status] || ORDER_STATUS.pending;
+    const StatusIcon = statusInfo.icon;
+    
+    return (
+      <View style={[styles.statusBadge, { backgroundColor: statusInfo.bgColor }]}>
+        <StatusIcon size={14} color={statusInfo.color} strokeWidth={2.5} />
+        <Text style={[styles.statusText, { color: statusInfo.color }]}>
+          {statusInfo.label}
+        </Text>
+      </View>
+    );
+  };
+
+  const renderOrderItem = ({ item, index }) => {
+    const isExpanded = expandedOrderId === item.id;
     const status = ORDER_STATUS[item.status] || ORDER_STATUS.pending;
     const StatusIcon = status.icon;
+    const isEven = index % 2 === 0;
+
+    const cardStyle = [
+      styles.orderCard,
+      { borderLeftColor: status.color, borderLeftWidth: 4 },
+      isEven ? { backgroundColor: 'white' } : { backgroundColor: '#fafafa' }
+    ];
 
     return (
-      <TouchableOpacity 
-        style={[styles.orderCard, { borderLeftColor: status.color, borderLeftWidth: 4 }]}
-        onPress={() => setSelectedOrder(item)}
+      <Animated.View 
+        entering={FadeIn.delay(index * 50).duration(300)}
+        style={cardStyle}
       >
-        <View style={styles.orderHeader}>
+        <TouchableOpacity 
+          style={styles.orderHeader}
+          onPress={() => toggleOrderExpand(item.id)}
+          activeOpacity={0.7}
+        >
           <View style={styles.orderInfo}>
             <Text style={styles.orderNumber}>#{item.orderNumber || 'No Order #'}</Text>
             <Text style={styles.orderService}>{item.productName || 'Unknown Product'}</Text>
             <Text style={styles.customerName}>{item.customerName || 'Unknown Customer'}</Text>
           </View>
-          <View style={[styles.statusBadge, { backgroundColor: status.bgColor }]}>
-            <StatusIcon size={16} color={status.color} />
-            <Text style={[styles.statusText, { color: status.color }]}>
-              {status.label}
-            </Text>
+          
+          <View style={styles.headerRight}>
+            {renderStatusBadge(item.status)}
+            <Animated.View style={{
+              transform: [{ 
+                rotate: isExpanded ? '180deg' : '0deg' 
+              }],
+            }}>
+              <ChevronDown size={18} color="#64748b" />
+            </Animated.View>
           </View>
-        </View>
+        </TouchableOpacity>
 
-        <View style={styles.orderDetails}>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Tanggal:</Text>
-            <Text style={styles.detailValue}>
-              {item.createdAt.toLocaleDateString('id-ID', {
-                day: 'numeric',
-                month: 'long',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-              })}
-            </Text>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Harga:</Text>
-            <Text style={[styles.detailValue, styles.priceText]}>
-              Rp {(item.amount || 0).toLocaleString('id-ID')}
-            </Text>
-          </View>
-          {item.adminNote && (
-            <View style={styles.noteContainer}>
-              <Text style={styles.noteLabel}>Catatan Admin:</Text>
-              <Text style={styles.noteText}>{item.adminNote}</Text>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.actionButtons}>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.noteButton]}
-            onPress={() => {
-              setSelectedOrder(item);
-              setAdminNote(item.adminNote || '');
-              setNoteModalVisible(true);
-            }}
+        {isExpanded && (
+          <Animated.View 
+            entering={FadeIn.duration(200)}
+            style={styles.expandedContent}
           >
-            <Text style={styles.actionButtonText}>Tambah Catatan</Text>
-          </TouchableOpacity>
-        </View>
-      </TouchableOpacity>
+            <View style={styles.orderDetails}>
+              <View style={styles.detailRow}>
+                <View style={styles.detailItem}>
+                  <Calendar size={16} color="#64748b" />
+                  <Text style={styles.detailLabel}>Tanggal:</Text>
+                </View>
+                <Text style={styles.detailValue}>
+                  {item.createdAt.toLocaleDateString('id-ID', {
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric',
+                  })}
+                </Text>
+              </View>
+              
+              <View style={styles.detailRow}>
+                <View style={styles.detailItem}>
+                  <DollarSign size={16} color="#64748b" />
+                  <Text style={styles.detailLabel}>Harga:</Text>
+                </View>
+                <Text style={[styles.detailValue, styles.priceText]}>
+                  Rp {(item.amount || 0).toLocaleString('id-ID')}
+                </Text>
+              </View>
+              
+              {item.adminNote && (
+                <View style={styles.noteContainer}>
+                  <View style={styles.detailItem}>
+                    <MessageSquare size={16} color="#64748b" />
+                    <Text style={styles.noteLabel}>Catatan Admin:</Text>
+                  </View>
+                  <Text style={styles.noteText}>{item.adminNote}</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.actionButtons}>
+              <TouchableOpacity
+                style={styles.viewDetailsButton}
+                onPress={() => setSelectedOrder(item)}
+              >
+                <Info size={14} color="#7C3AED" />
+                <Text style={styles.viewDetailsText}>Detail</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={styles.noteButton}
+                onPress={() => {
+                  setSelectedOrder(item);
+                  setAdminNote(item.adminNote || '');
+                  setNoteModalVisible(true);
+                }}
+              >
+                <FileText size={14} color="#7C3AED" />
+                <Text style={styles.noteButtonText}>Catatan</Text>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        )}
+      </Animated.View>
     );
   };
 
-  if (loading && !refreshing) {
+  const renderEmptyList = () => (
+    <View style={styles.emptyContainer}>
+      <Image 
+        source={require('@/assets/images/empty-order.jpg')} 
+        style={styles.emptyImage}
+        resizeMode="contain"
+      />
+      <Text style={styles.emptyTitle}>Tidak ada pesanan ditemukan</Text>
+      <Text style={styles.emptyText}>
+        {searchQuery || statusFilter !== 'all' 
+          ? 'Coba ubah filter pencarian Anda' 
+          : 'Belum ada pesanan yang masuk'}
+      </Text>
+      <TouchableOpacity 
+        style={styles.refreshButton}
+        onPress={loadOrders}
+      >
+        <RefreshCw size={16} color="white" />
+        <Text style={styles.refreshButtonText}>Muat Ulang</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderHeader = () => (
+    <Animated.View 
+      style={[styles.header]}
+      entering={FadeIn.duration(500)}
+    >
+      <Text style={styles.headerTitle}>Kelola Pesanan</Text>
+      <Text style={styles.headerSubtitle}>
+        {filteredOrders.length} pesanan {
+          statusFilter !== 'all' ? `dengan status ${ORDER_STATUS[statusFilter].label.toLowerCase()}` : 'aktif'
+        }
+      </Text>
+    </Animated.View>
+  );
+
+  if (loading && initialLoad) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#7C3AED" />
+      <SafeAreaView style={[styles.loadingContainer, {paddingTop: insets.top}]}>
+        <StatusBar barStyle="dark-content" backgroundColor="#f8fafc" />
+        <Image 
+          source={require('@/assets/images/logo.png')} 
+          style={styles.loadingLogo}
+        />
+        <ActivityIndicator size="large" color="#7C3AED" style={styles.loadingIndicator} />
         <Text style={styles.loadingText}>Memuat pesanan...</Text>
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={[styles.container, {paddingTop: insets.top}]}>
+      <StatusBar barStyle="dark-content" backgroundColor="#f8fafc" />
+      
+      {/* Header */}
+      {renderHeader()}
+      
       {/* Search and Filter Bar */}
       <View style={styles.searchContainer}>
         <View style={styles.searchInputContainer}>
-          <Search size={20} color="#6B7280" />
+          <Search size={18} color="#6B7280" />
           <TextInput
             style={styles.searchInput}
             placeholder="Cari pesanan..."
@@ -307,39 +516,87 @@ export default function ManageOrders() {
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
+          {searchQuery ? (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <X size={16} color="#6B7280" />
+            </TouchableOpacity>
+          ) : null}
         </View>
         <TouchableOpacity 
-          style={styles.filterButton}
+          style={[
+            styles.filterButton,
+            showFilters && styles.filterButtonActive
+          ]}
           onPress={() => setShowFilters(!showFilters)}
         >
-          <Filter size={20} color="#7C3AED" />
-          <Text style={styles.filterButtonText}>Filter</Text>
-          {showFilters ? <ChevronUp size={18} color="#7C3AED" /> : <ChevronDown size={18} color="#7C3AED" />}
+          <Sliders size={16} color={showFilters ? "white" : "#7C3AED"} />
+          <Text style={[
+            styles.filterButtonText,
+            showFilters && styles.filterButtonTextActive
+          ]}>Filter</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Filters */}
-      {showFilters && (
-        <View style={styles.filtersContainer}>
+      {/* Animated Filters */}
+      <Animated.View style={[styles.filtersContainer, animatedFilterStyle]}>
+        <View style={styles.filterSection}>
           <Text style={styles.filterLabel}>Status Pesanan:</Text>
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={statusFilter}
-              onValueChange={(itemValue) => setStatusFilter(itemValue)}
-              style={styles.picker}
-              dropdownIconColor="#7C3AED"
-            >
-              {STATUS_OPTIONS.map((option) => (
-                <Picker.Item 
-                  key={option.value} 
-                  label={option.label} 
-                  value={option.value} 
-                />
-              ))}
-            </Picker>
-          </View>
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.statusFilters}
+            snapToAlignment="start"
+            decelerationRate="fast"
+          >
+            {STATUS_OPTIONS.map((option) => (
+              <TouchableOpacity
+                key={option.value}
+                style={[
+                  styles.statusFilterChip,
+                  statusFilter === option.value && styles.statusFilterChipActive
+                ]}
+                onPress={() => setStatusFilter(option.value)}
+              >
+                <Text style={[
+                  styles.statusFilterText,
+                  statusFilter === option.value && styles.statusFilterTextActive
+                ]}>
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
         </View>
-      )}
+
+        <View style={styles.filterSection}>
+          <Text style={styles.filterLabel}>Urutkan:</Text>
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.statusFilters}
+            snapToAlignment="start"
+            decelerationRate="fast"
+          >
+            {SORT_OPTIONS.map((option) => (
+              <TouchableOpacity
+                key={option.value}
+                style={[
+                  styles.statusFilterChip,
+                  sortOption === option.value && styles.statusFilterChipActive
+                ]}
+                onPress={() => setSortOption(option.value)}
+              >
+                <Text style={[
+                  styles.statusFilterText,
+                  sortOption === option.value && styles.statusFilterTextActive
+                ]}>
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      </Animated.View>
 
       {/* Order List */}
       <FlatList
@@ -354,21 +611,16 @@ export default function ManageOrders() {
             tintColor="#7C3AED"
           />
         }
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>Tidak ada pesanan ditemukan</Text>
-            <TouchableOpacity 
-              style={styles.refreshButton}
-              onPress={loadOrders}
-            >
-              <Text style={styles.refreshButtonText}>Muat Ulang</Text>
-            </TouchableOpacity>
-          </View>
-        }
+        ListEmptyComponent={renderEmptyList}
         contentContainerStyle={[
           styles.listContent,
           filteredOrders.length === 0 && { flex: 1 }
         ]}
+        showsVerticalScrollIndicator={false}
+        removeClippedSubviews={true}
+        initialNumToRender={8}
+        maxToRenderPerBatch={10}
+        windowSize={10}
       />
 
       {/* Order Detail Modal */}
@@ -379,134 +631,208 @@ export default function ManageOrders() {
           visible={!!selectedOrder}
           onRequestClose={() => setSelectedOrder(null)}
         >
-          <View style={styles.modalContainer}>
-            <BlurView intensity={20} style={StyleSheet.absoluteFill} />
-            <View style={styles.modalContent}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Detail Pesanan</Text>
-                <TouchableOpacity onPress={() => setSelectedOrder(null)}>
-                  <XCircle size={24} color="#6B7280" />
-                </TouchableOpacity>
-              </View>
-
-              <ScrollView style={styles.modalBody}>
-                <View style={styles.detailSection}>
-                  <Text style={styles.sectionTitle}>Informasi Pesanan</Text>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Nomor Pesanan:</Text>
-                    <Text style={styles.detailValue}>#{selectedOrder.orderNumber || 'No Order #'}</Text>
-                  </View>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Layanan:</Text>
-                    <Text style={styles.detailValue}>{selectedOrder.productName || 'Unknown Product'}</Text>
-                  </View>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Status:</Text>
-                    <View style={styles.statusValue}>
-                      <Text style={[styles.detailValue, { color: ORDER_STATUS[selectedOrder.status]?.color || '#F59E0B' }]}>
-                        {ORDER_STATUS[selectedOrder.status]?.label || 'Menunggu'}
-                      </Text>
+          <SafeAreaView style={styles.modalContainer}>
+            <BlurView intensity={isIOS ? 10 : 40} style={StyleSheet.absoluteFill} />
+            <Animated.View 
+              entering={SlideInRight.duration(300)}
+              exiting={SlideOutRight.duration(300)}
+              style={styles.modalContent}
+            >
+              <LinearGradient
+                colors={['#7C3AED', '#9333EA']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.modalHeader}
+              >
+                <View style={styles.modalHeaderContent}>
+                  <View>
+                    <Text style={styles.modalOrderNumber}>#{selectedOrder.orderNumber || 'No Order #'}</Text>
+                    <Text style={styles.modalTitle}>{selectedOrder.productName || 'Unknown Product'}</Text>
+                    <View style={styles.modalStatusRow}>
+                      {renderStatusBadge(selectedOrder.status)}
                     </View>
                   </View>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Tanggal:</Text>
-                    <Text style={styles.detailValue}>
-                      {selectedOrder.createdAt.toLocaleDateString('id-ID', {
-                        day: 'numeric',
-                        month: 'long',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
-                    </Text>
-                  </View>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Harga:</Text>
-                    <Text style={[styles.detailValue, styles.priceText]}>
-                      Rp {(selectedOrder.amount || 0).toLocaleString('id-ID')}
-                    </Text>
+                  <TouchableOpacity 
+                    style={styles.closeButton}
+                    onPress={() => setSelectedOrder(null)}
+                  >
+                    <X size={20} color="white" />
+                  </TouchableOpacity>
+                </View>
+              </LinearGradient>
+
+              <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+                <View style={styles.detailSection}>
+                  <Text style={styles.sectionTitle}>Informasi Pesanan</Text>
+                  <View style={styles.detailCard}>
+                    <View style={styles.modalDetailRow}>
+                      <View style={styles.modalDetailItem}>
+                        <Calendar size={16} color="#7C3AED" />
+                        <Text style={styles.modalDetailLabel}>Tanggal Order</Text>
+                      </View>
+                      <Text style={styles.modalDetailValue}>
+                        {selectedOrder.createdAt.toLocaleDateString('id-ID', {
+                          day: 'numeric',
+                          month: 'long',
+                          year: 'numeric',
+                        })}
+                      </Text>
+                    </View>
+
+                    <View style={styles.modalDetailRow}>
+                      <View style={styles.modalDetailItem}>
+                        <Clock size={16} color="#7C3AED" />
+                        <Text style={styles.modalDetailLabel}>Waktu</Text>
+                      </View>
+                      <Text style={styles.modalDetailValue}>
+                        {selectedOrder.createdAt.toLocaleTimeString('id-ID', {
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </Text>
+                    </View>
+
+                    <View style={styles.modalDetailRow}>
+                      <View style={styles.modalDetailItem}>
+                        <DollarSign size={16} color="#7C3AED" />
+                        <Text style={styles.modalDetailLabel}>Total Harga</Text>
+                      </View>
+                      <Text style={[styles.modalDetailValue, styles.priceValue]}>
+                        Rp {(selectedOrder.amount || 0).toLocaleString('id-ID')}
+                      </Text>
+                    </View>
                   </View>
                 </View>
 
                 <View style={styles.detailSection}>
                   <Text style={styles.sectionTitle}>Detail Pelanggan</Text>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Nama:</Text>
-                    <Text style={styles.detailValue}>{selectedOrder.customerName || '-'}</Text>
-                  </View>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Email:</Text>
-                    <Text style={styles.detailValue}>{selectedOrder.customerEmail || '-'}</Text>
-                  </View>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>WhatsApp:</Text>
-                    <Text style={styles.detailValue}>{selectedOrder.customerPhone || '-'}</Text>
+                  <View style={styles.detailCard}>
+                    <View style={styles.modalDetailRow}>
+                      <View style={styles.modalDetailItem}>
+                        <User size={16} color="#7C3AED" />
+                        <Text style={styles.modalDetailLabel}>Nama</Text>
+                      </View>
+                      <Text style={styles.modalDetailValue}>{selectedOrder.customerName || '-'}</Text>
+                    </View>
+
+                    <View style={styles.modalDetailRow}>
+                      <View style={styles.modalDetailItem}>
+                        <Mail size={16} color="#7C3AED" />
+                        <Text style={styles.modalDetailLabel}>Email</Text>
+                      </View>
+                      <Text style={styles.modalDetailValue}>{selectedOrder.customerEmail || '-'}</Text>
+                    </View>
+
+                    <View style={styles.modalDetailRow}>
+                      <View style={styles.modalDetailItem}>
+                        <Phone size={16} color="#7C3AED" />
+                        <Text style={styles.modalDetailLabel}>WhatsApp</Text>
+                      </View>
+                      <Text style={styles.modalDetailValue}>{selectedOrder.customerPhone || '-'}</Text>
+                    </View>
                   </View>
                 </View>
 
                 <View style={styles.detailSection}>
                   <Text style={styles.sectionTitle}>Detail Tugas</Text>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Username/NIM:</Text>
-                    <Text style={styles.detailValue}>{selectedOrder.orderDetails?.username || '-'}</Text>
-                  </View>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Jenis Tugas:</Text>
-                    <Text style={styles.detailValue}>{selectedOrder.orderDetails?.taskType || '-'}</Text>
-                  </View>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Catatan:</Text>
-                    <Text style={styles.detailValue}>{selectedOrder.orderDetails?.notes || '-'}</Text>
+                  <View style={styles.detailCard}>
+                    <View style={styles.modalDetailRow}>
+                      <View style={styles.modalDetailItem}>
+                        <User size={16} color="#7C3AED" />
+                        <Text style={styles.modalDetailLabel}>Nama</Text>
+                      </View>
+                      <Text style={styles.modalDetailValue}>{selectedOrder.orderDetails?.username || '-'}</Text>
+                    </View>
+
+                    <View style={styles.modalDetailRow}>
+                      <View style={styles.modalDetailItem}>
+                        <FileText size={16} color="#7C3AED" />
+                        <Text style={styles.modalDetailLabel}>Jenis Tugas</Text>
+                      </View>
+                      <Text style={styles.modalDetailValue}>{selectedOrder.orderDetails?.password || '-'}</Text>
+                    </View>
+
+                    <View style={[styles.modalDetailRow, { alignItems: 'flex-start' }]}>
+                      <View style={styles.modalDetailItem}>
+                        <MessageSquare size={16} color="#7C3AED" />
+                        <Text style={styles.modalDetailLabel}>Catatan</Text>
+                      </View>
+                      <Text style={[styles.modalDetailValue, { flex: 1 }]}>
+                        {selectedOrder.orderDetails?.notes || '-'}
+                      </Text>
+                    </View>
                   </View>
                 </View>
 
                 {selectedOrder.adminNote && (
                   <View style={styles.detailSection}>
                     <Text style={styles.sectionTitle}>Catatan Admin</Text>
-                    <Text style={styles.adminNoteText}>{selectedOrder.adminNote}</Text>
+                    <View style={styles.adminNoteCard}>
+                      <Text style={styles.adminNoteText}>{selectedOrder.adminNote}</Text>
+                    </View>
                   </View>
                 )}
+
+                <View style={styles.detailSection}>
+                  <Text style={styles.sectionTitle}>Update Status</Text>
+                  <ScrollView 
+                    horizontal 
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.statusButtonsContainer}
+                  >
+                    {Object.entries(ORDER_STATUS).map(([key, value]) => (
+                      <TouchableOpacity
+                        key={key}
+                        style={[
+                          styles.statusUpdateButton,
+                          selectedOrder.status === key && styles.activeStatusButton,
+                          { backgroundColor: selectedOrder.status === key ? value.color : 'white' }
+                        ]}
+                        onPress={() => {
+                          if (selectedOrder.status !== key) {
+                            updateOrderStatus(selectedOrder.id, key);
+                            setSelectedOrder(null);
+                          }
+                        }}
+                        disabled={actionInProgress || selectedOrder.status === key}
+                      >
+                        {value.icon && (
+                          <value.icon 
+                            size={16} 
+                            color={selectedOrder.status === key ? 'white' : value.color} 
+                          />
+                        )}
+                        <Text
+                          style={[
+                            styles.statusButtonText,
+                            { color: selectedOrder.status === key ? 'white' : value.color }
+                          ]}
+                        >
+                          {value.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+                
+                {/* Add some padding at the bottom to ensure all content is visible */}
+                <View style={{ height: 70 }} />
               </ScrollView>
 
               <View style={styles.modalFooter}>
-                <View style={styles.statusActions}>
-                  {Object.entries(ORDER_STATUS).map(([key, value]) => (
-                    <TouchableOpacity
-                      key={key}
-                      style={[
-                        styles.statusButton,
-                        selectedOrder.status === key && styles.activeStatusButton,
-                        { borderColor: value.color }
-                      ]}
-                      onPress={() => {
-                        updateOrderStatus(selectedOrder.id, key);
-                        setSelectedOrder(null);
-                      }}
-                    >
-                      <Text
-                        style={[
-                          styles.statusButtonText,
-                          { color: value.color },
-                          selectedOrder.status === key && { color: 'white' }
-                        ]}
-                      >
-                        {value.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
                 <TouchableOpacity
-                  style={styles.noteButton}
+                  style={styles.addNoteButton}
                   onPress={() => {
                     setAdminNote(selectedOrder.adminNote || '');
                     setNoteModalVisible(true);
                   }}
                 >
-                  <Text style={styles.noteButtonText}>Tambah Catatan</Text>
+                  <MessageSquare size={18} color="white" />
+                  <Text style={styles.addNoteButtonText}>Tambah Catatan</Text>
                 </TouchableOpacity>
               </View>
-            </View>
-          </View>
+            </Animated.View>
+          </SafeAreaView>
         </Modal>
       )}
 
@@ -517,152 +843,227 @@ export default function ManageOrders() {
         visible={noteModalVisible}
         onRequestClose={() => setNoteModalVisible(false)}
       >
-        <View style={styles.noteModalContainer}>
-          <BlurView intensity={20} style={StyleSheet.absoluteFill} />
-          <View style={styles.noteModalContent}>
-            <Text style={styles.noteModalTitle}>Catatan Admin</Text>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.noteModalContainer}
+        >
+          <BlurView intensity={isIOS ? 25 : 40} style={StyleSheet.absoluteFill} />
+          <Animated.View 
+            entering={SlideInUp.duration(300)}
+            exiting={SlideOutDown.duration(200)}
+            style={styles.noteModalContent}
+          >
+            <View style={styles.noteModalHeader}>
+              <Text style={styles.noteModalTitle}>Catatan Admin</Text>
+              <TouchableOpacity 
+                style={styles.closeNoteButton}
+                onPress={() => setNoteModalVisible(false)}
+              >
+                <X size={20} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+            
             <TextInput
               style={styles.noteInput}
               multiline
-              numberOfLines={4}
+              numberOfLines={6}
               placeholder="Masukkan catatan untuk pesanan ini..."
+              placeholderTextColor="#9CA3AF"
               value={adminNote}
               onChangeText={setAdminNote}
+              autoFocus
             />
+            
             <View style={styles.noteModalButtons}>
               <TouchableOpacity
                 style={[styles.noteModalButton, styles.cancelButton]}
                 onPress={() => setNoteModalVisible(false)}
               >
-                <Text style={[styles.noteModalButtonText, { color: '#64748b' }]}>Batal</Text>
+                <Text style={styles.cancelButtonText}>Batal</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.noteModalButton, styles.saveButton]}
                 onPress={saveAdminNote}
+                disabled={actionInProgress}
               >
-                <Text style={[styles.noteModalButtonText, { color: 'white' }]}>Simpan</Text>
+                {actionInProgress ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Text style={styles.saveButtonText}>Simpan</Text>
+                )}
               </TouchableOpacity>
             </View>
-          </View>
-        </View>
+          </Animated.View>
+        </KeyboardAvoidingView>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#F1F5F9',
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  header: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
   },
-  loadingText: {
-    marginTop: 12,
-    color: '#64748b',
-    fontSize: 16,
-    fontFamily: 'Inter_500Medium',
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginBottom: 4,
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    color: '#64748B',
+    fontWeight: '400',
   },
   searchContainer: {
     flexDirection: 'row',
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     backgroundColor: 'white',
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: '#E2E8F0',
+    alignItems: 'center',
+    gap: 8,
   },
   searchInputContainer: {
     flex: 1,
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f1f5f9',
+    backgroundColor: '#F8FAFC',
     borderRadius: 8,
     paddingHorizontal: 12,
-    marginRight: 8,
+    paddingVertical: Platform.OS === 'ios' ? 10 : 6,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    gap: 8,
   },
   searchInput: {
     flex: 1,
-    height: 40,
-    paddingLeft: 8,
-    color: '#334155',
-    fontFamily: 'Inter_400Regular',
+    fontSize: 15,
+    color: '#1E293B',
+    paddingVertical: 0,
   },
   filterButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
+    justifyContent: 'center',
+    backgroundColor: '#F3E8FF',
     paddingVertical: 8,
+    paddingHorizontal: 12,
     borderRadius: 8,
-    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#E9D5FF',
+    gap: 6,
+  },
+  filterButtonActive: {
+    backgroundColor: '#7C3AED',
+    borderColor: '#7C3AED',
   },
   filterButtonText: {
-    marginLeft: 4,
-    marginRight: 4,
     color: '#7C3AED',
-    fontFamily: 'Inter_600SemiBold',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  filterButtonTextActive: {
+    color: 'white',
   },
   filtersContainer: {
-    padding: 16,
     backgroundColor: 'white',
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: '#E2E8F0',
+    paddingHorizontal: 16,
+  },
+  filterSection: {
+    marginVertical: 8,
   },
   filterLabel: {
+    color: '#64748B',
+    fontSize: 14,
+    fontWeight: '500',
     marginBottom: 8,
-    color: '#334155',
-    fontFamily: 'Inter_600SemiBold',
   },
-  pickerContainer: {
+  statusFilters: {
+    flexDirection: 'row',
+    paddingRight: 16,
+    paddingBottom: 4,
+    gap: 8,
+  },
+  statusFilterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: '#F1F5F9',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    overflow: 'hidden',
+    borderColor: '#E2E8F0',
   },
-  picker: {
-    height: 40,
-    color: '#334155',
-    backgroundColor: 'white',
+  statusFilterChipActive: {
+    backgroundColor: '#7C3AED',
+    borderColor: '#7C3AED',
+  },
+  statusFilterText: {
+    color: '#64748B',
+    fontWeight: '500',
+    fontSize: 13,
+  },
+  statusFilterTextActive: {
+    color: 'white',
   },
   listContent: {
-    padding: 16,
+    padding: 12,
+    paddingBottom: 80, // Extra space at bottom for better scrolling
   },
   orderCard: {
     backgroundColor: 'white',
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 12,
-    elevation: 1,
+    borderRadius: 10,
+    marginBottom: 10,
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 1,
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   orderHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    padding: 12,
+    alignItems: 'center',
   },
   orderInfo: {
     flex: 1,
   },
   orderNumber: {
     fontSize: 14,
-    color: '#64748b',
-    fontFamily: 'Inter_600SemiBold',
-    marginBottom: 2,
-  },
-  orderService: {
-    fontSize: 16,
-    color: '#1e293b',
-    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    color: '#1E293B',
     marginBottom: 4,
   },
+  orderService: {
+    fontSize: 13,
+    color: '#334155',
+    marginBottom: 2,
+  },
   customerName: {
-    fontSize: 14,
-    color: '#64748b',
-    fontFamily: 'Inter_500Medium',
+    fontSize: 12,
+    color: '#64748B',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   statusBadge: {
     flexDirection: 'row',
@@ -670,224 +1071,395 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
+    gap: 4,
   },
   statusText: {
-    marginLeft: 4,
     fontSize: 12,
-    fontFamily: 'Inter_600SemiBold',
+    fontWeight: '600',
+  },
+  expandedContent: {
+    padding: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
   },
   orderDetails: {
+    gap: 10,
     marginBottom: 12,
   },
   detailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    alignItems: 'center',
+  },
+  detailItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   detailLabel: {
-    fontSize: 14,
-    color: '#64748b',
-    fontFamily: 'Inter_500Medium',
+    fontSize: 13,
+    color: '#64748B',
+    fontWeight: '500',
   },
   detailValue: {
-    fontSize: 14,
-    color: '#1e293b',
-    fontFamily: 'Inter_600SemiBold',
+    fontSize: 13,
+    color: '#334155',
+    fontWeight: '500',
   },
   priceText: {
     color: '#7C3AED',
+    fontWeight: '600',
   },
   noteContainer: {
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
+    marginTop: 4,
+    gap: 4,
   },
   noteLabel: {
-    fontSize: 12,
-    color: '#64748b',
-    fontFamily: 'Inter_500Medium',
-    marginBottom: 2,
+    fontSize: 13,
+    color: '#64748B',
+    fontWeight: '500',
   },
   noteText: {
-    fontSize: 13,
-    color: '#475569',
-    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+    color: '#334155',
+    backgroundColor: '#F1F5F9',
+    padding: 8,
+    borderRadius: 6,
+    marginTop: 4,
+    borderLeftWidth: 2,
+    borderLeftColor: '#7C3AED',
   },
   actionButtons: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    gap: 8,
+    marginTop: 8,
   },
-  actionButton: {
+  viewDetailsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3E8FF',
+    paddingVertical: 8,
     paddingHorizontal: 12,
-    paddingVertical: 6,
     borderRadius: 6,
-    backgroundColor: '#f1f5f9',
+    gap: 6,
+    flex: 1,
+    justifyContent: 'center',
   },
-  actionButtonText: {
-    fontSize: 12,
-    color: '#334155',
-    fontFamily: 'Inter_600SemiBold',
+  viewDetailsText: {
+    color: '#7C3AED',
+    fontWeight: '600',
+    fontSize: 13,
   },
   noteButton: {
-    backgroundColor: '#e9d5ff',
-    borderColor: '#c084fc',
-    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3E8FF',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    gap: 6,
+    flex: 1,
+    justifyContent: 'center',
+  },
+  noteButtonText: {
+    color: '#7C3AED',
+    fontWeight: '600',
+    fontSize: 13,
   },
   emptyContainer: {
     flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-    padding: 40,
+    justifyContent: 'center',
+    padding: 24,
+  },
+  emptyImage: {
+    width: width * 0.6,
+    height: width * 0.6,
+    marginBottom: 16,
+    opacity: 0.9,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1E293B',
+    marginBottom: 8,
+    textAlign: 'center',
   },
   emptyText: {
-    fontSize: 16,
-    color: '#64748b',
-    fontFamily: 'Inter_500Medium',
+    fontSize: 14,
+    color: '#64748B',
     textAlign: 'center',
     marginBottom: 16,
   },
   refreshButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#7C3AED',
+    paddingVertical: 10,
     paddingHorizontal: 16,
-    paddingVertical: 8,
     borderRadius: 8,
+    gap: 8,
   },
   refreshButtonText: {
     color: 'white',
-    fontFamily: 'Inter_600SemiBold',
+    fontWeight: '600',
     fontSize: 14,
   },
-  // Modal Styles
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingLogo: {
+    width: 80,
+    height: 80,
+    marginBottom: 24,
+    resizeMode: 'contain',
+  },
+  loadingIndicator: {
+    marginBottom: 16,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#64748B',
+    fontWeight: '500',
+  },
   modalContainer: {
     flex: 1,
-    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(15, 23, 42, 0.7)',
   },
   modalContent: {
+    flex: 1,
     backgroundColor: 'white',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    maxHeight: '85%',
+    width: '100%',
+    borderTopLeftRadius: isIOS ? 20 : 0,
+    borderTopRightRadius: isIOS ? 20 : 0,
+    overflow: 'hidden',
   },
   modalHeader: {
+    paddingTop: 16,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  modalHeaderContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    alignItems: 'flex-start',
+  },
+  modalOrderNumber: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginBottom: 4,
   },
   modalTitle: {
     fontSize: 18,
-    color: '#1e293b',
-    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    color: 'white',
+    marginBottom: 8,
   },
-  modalBody: {
-    padding: 16,
-  },
-  modalFooter: {
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
-  },
-  detailSection: {
-    marginBottom: 20,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    color: '#1e293b',
-    fontFamily: 'Inter_700Bold',
-    marginBottom: 12,
-  },
-  statusValue: {
+  modalStatusRow: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  closeButton: {
+    padding: 6,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  modalBody: {
+    flex: 1,
+    backgroundColor: '#F1F5F9',
+  },
+  detailSection: {
+    marginTop: 16,
+    paddingHorizontal: 16,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#334155',
+    marginBottom: 8,
+  },
+  detailCard: {
+    backgroundColor: 'white',
+    borderRadius: 10,
+    padding: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  modalDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  modalDetailItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  modalDetailLabel: {
+    fontSize: 14,
+    color: '#64748B',
+    fontWeight: '500',
+  },
+  modalDetailValue: {
+    fontSize: 14,
+    color: '#334155',
+    fontWeight: '500',
+    maxWidth: '55%',
+    textAlign: 'right',
+  },
+  priceValue: {
+    color: '#7C3AED',
+    fontWeight: '600',
+  },
+  adminNoteCard: {
+    backgroundColor: 'white',
+    borderRadius: 10,
+    padding: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+    borderLeftWidth: 3,
+    borderLeftColor: '#7C3AED',
   },
   adminNoteText: {
     fontSize: 14,
-    color: '#475569',
-    fontFamily: 'Inter_400Regular',
-    backgroundColor: '#f8fafc',
-    padding: 12,
-    borderRadius: 6,
+    color: '#334155',
+    lineHeight: 20,
   },
-  statusActions: {
+  statusButtonsContainer: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginBottom: 12,
-    gap: 8,
+    gap: 10,
+    paddingVertical: 4,
+    paddingRight: 16,
   },
-  statusButton: {
-    borderWidth: 1,
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+  statusUpdateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    gap: 8,
+    borderWidth: 1.5,
+    minWidth: 110,
+    justifyContent: 'center',
+    backgroundColor: 'white',
   },
   activeStatusButton: {
-    backgroundColor: '#7C3AED',
+    borderWidth: 0,
   },
   statusButtonText: {
-    fontSize: 12,
-    fontFamily: 'Inter_600SemiBold',
+    fontWeight: '600',
+    fontSize: 14,
   },
-  noteButton: {
-    backgroundColor: '#7C3AED',
-    borderRadius: 6,
-    padding: 12,
+  modalFooter: {
+    padding: 16,
+    backgroundColor: 'white',
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  addNoteButton: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#7C3AED',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    gap: 8,
   },
-  noteButtonText: {
+  addNoteButtonText: {
     color: 'white',
-    fontFamily: 'Inter_600SemiBold',
+    fontWeight: '600',
+    fontSize: 15,
   },
-  // Note Modal Styles
   noteModalContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(15, 23, 42, 0.5)',
   },
   noteModalContent: {
-    width: '90%',
     backgroundColor: 'white',
-    borderRadius: 12,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     padding: 16,
+    maxHeight: '80%',
+  },
+  noteModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
   },
   noteModalTitle: {
     fontSize: 18,
-    color: '#1e293b',
-    fontFamily: 'Inter_700Bold',
-    marginBottom: 16,
-    textAlign: 'center',
+    fontWeight: '600',
+    color: '#1E293B',
+  },
+  closeNoteButton: {
+    padding: 4,
+    borderRadius: 20,
+    backgroundColor: '#F1F5F9',
   },
   noteInput: {
-    minHeight: 100,
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#E2E8F0',
     borderRadius: 8,
     padding: 12,
-    marginBottom: 16,
+    fontSize: 15,
+    color: '#334155',
+    minHeight: 120,
     textAlignVertical: 'top',
-    fontFamily: 'Inter_400Regular',
   },
   noteModalButtons: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
+    marginTop: 16,
+    gap: 12,
   },
   noteModalButton: {
-    flex: 1,
-    borderRadius: 6,
-    padding: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
     alignItems: 'center',
-    marginHorizontal: 4,
+    justifyContent: 'center',
+    minWidth: 100,
   },
   cancelButton: {
-    backgroundColor: '#f1f5f9',
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  cancelButtonText: {
+    color: '#64748B',
+    fontWeight: '600',
+    fontSize: 14,
   },
   saveButton: {
     backgroundColor: '#7C3AED',
   },
-  noteModalButtonText: {
-    fontFamily: 'Inter_600SemiBold',
+  saveButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 14,
   },
 });

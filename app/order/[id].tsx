@@ -1,531 +1,81 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, TouchableOpacity, Linking, Alert } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator, Platform, Image, Share, Alert } from 'react-native';
+import { useLocalSearchParams, router } from 'expo-router';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { useLocalSearchParams, router } from 'expo-router';
-import { MaterialIcons, AntDesign, FontAwesome, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
+import * as Animatable from 'react-native-animatable';
+import { ArrowLeft, Package, Clock, CircleCheck, Circle, CreditCard, MessageSquare, FileText, ExternalLink, MapPin, Calendar, DollarSign, User, Mail, Download } from 'lucide-react-native';
+import moment from 'moment';
+import * as FileSystem from 'expo-file-system';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system';
 
-// Enhanced receipt generation function with beautiful design
-const generateOrderReceipt = async (order) => {
-  try {
-    // Format date in a cleaner way
-    const formatSimpleDate = (timestamp) => {
-      if (!timestamp?.seconds) return '-';
-      const date = new Date(timestamp.seconds * 1000);
-      return `${date.getDate()} ${date.toLocaleDateString('id-ID', {month: 'long'})} ${date.getFullYear()}`;
-    };
+const COLORS = {
+  primary: '#0557B5',
+  primaryLight: '#E1EFFF',
+  primaryDark: '#044289',
+  secondary: '#2C7DFA',
+  accent: '#70B3FF',
+  success: '#00B884',
+  successLight: '#E6F9F4',
+  warning: '#FF9D00',
+  warningLight: '#FFF5E6',
+  danger: '#FF4757',
+  dangerLight: '#FFECEE',
+  neutral: '#F8FAFC',
+  neutralDark: '#E2E8F0',
+  text: '#1E293B',
+  textSecondary: '#64748B',
+  white: '#FFFFFF',
+  headerBlue: '#1E88E5',
+};
 
-    // Create items HTML based on order details
-    let itemsHtml = '';
-    
-    // If order has items array, use it
-    if (order.items && Array.isArray(order.items) && order.items.length > 0) {
-      order.items.forEach(item => {
-        itemsHtml += `
-          <tr>
-            <td class="item-name">${item.name}</td>
-            <td class="item-price">Rp ${item.price?.toLocaleString('id-ID')}</td>
-          </tr>
-        `;
-      });
-    } else {
-      // Otherwise just show the product name
-      itemsHtml = `
-        <tr>
-          <td class="item-name">${order.productName || '-'}</td>
-          <td class="item-price">Rp ${order.amount?.toLocaleString('id-ID') || '0'}</td>
-        </tr>
-      `;
-    }
-
-    // Generate order number with leading zeros
-    const formattedOrderNumber = order.orderNumber ? 
-      `#${order.orderNumber.padStart(8, '0')}` : 
-      '#00000001';
-
-    // Fixed payment status based on order status
-    const paymentStatus = order.status === 'completed' || order.status === 'processing' ? 'LUNAS' : 'BELUM LUNAS';
-    const statusColor = paymentStatus === 'LUNAS' ? '#10B981' : '#EF4444';
-    
-    // Enhanced HTML template with better design
-    const html = `
-      <!DOCTYPE html>
-      <html lang="id">
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Struk Pembayaran - TEFA APPS</title>
-          <style>
-            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
-            
-            * {
-              margin: 0;
-              padding: 0;
-              box-sizing: border-box;
-            }
-            
-            body {
-              font-family: 'Poppins', 'Helvetica', Arial, sans-serif;
-              background-color: #f7fafc;
-              color: #1A202C;
-              line-height: 1.6;
-            }
-            
-            .receipt-container {
-              max-width: 800px;
-              margin: 0 auto;
-              background-color: white;
-              border-radius: 12px;
-              box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-              overflow: hidden;
-            }
-            
-            .receipt-header {
-              background-color:rgb(5, 78, 121);
-              padding: 30px;
-              color: white;
-              position: relative;
-            }
-            
-            .wave-pattern {
-              position: absolute;
-              bottom: 0;
-              left: 0;
-              width: 100%;
-              height: 20px;
-              background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120' preserveAspectRatio='none'%3E%3Cpath d='M0,0V46.29c47.79,22.2,103.59,32.17,158,28,70.36-5.37,136.33-33.31,206.8-37.5C438.64,32.43,512.34,53.67,583,72.05c69.27,18,138.3,24.88,209.4,13.08,36.15-6,69.85-17.84,104.45-29.34C989.49,25,1113-14.29,1200,52.47V0Z' fill='%23ffffff' opacity='.25'%3E%3C/path%3E%3C/svg%3E");
-              background-size: cover;
-              transform: rotate(180deg);
-            }
-            
-            .logo-container {
-              display: flex;
-              align-items: center;
-              margin-bottom: 20px;
-            }
-            
-            .logo-icon {
-              width: 50px;
-              height: 50px;
-              background-color: white;
-              position: relative;
-              border-radius: 8px;
-              display: flex;
-              justify-content: center;
-              align-items: center;
-              margin-right: 15px;
-            }
-            
-            .logo-icon:before {
-              content: 'T';
-              color:rgb(0, 24, 158);
-              font-size: 30px;
-              font-weight: bold;
-            }
-            
-            .brand-name {
-              font-size: 28px;
-              font-weight: 700;
-              letter-spacing: 1px;
-            }
-            
-            .receipt-title {
-              font-size: 40px;
-              font-weight: 800;
-              margin-top: 10px;
-              text-transform: uppercase;
-            }
-            
-            .order-number {
-              font-size: 16px;
-              opacity: 0.9;
-              margin-top: 5px;
-            }
-            
-            .receipt-content {
-              padding: 40px;
-            }
-            
-            .status-badge {
-              display: inline-block;
-              padding: 8px 16px;
-              border-radius: 20px;
-              font-weight: 600;
-              font-size: 14px;
-              margin-bottom: 30px;
-              background-color: ${statusColor}15;
-              color: ${statusColor};
-              text-transform: uppercase;
-              letter-spacing: 1px;
-            }
-            
-            .info-section {
-              display: flex;
-              flex-wrap: wrap;
-              margin-bottom: 40px;
-              background-color: #F9FAFB;
-              border-radius: 10px;
-              padding: 20px;
-            }
-            
-            .info-column {
-              flex: 1;
-              min-width: 250px;
-              margin-bottom: 20px;
-            }
-            
-            .info-item {
-              margin-bottom: 15px;
-            }
-            
-            .info-label {
-              font-size: 14px;
-              color: #6B7280;
-              margin-bottom: 5px;
-            }
-            
-            .info-value {
-              font-size: 16px;
-              font-weight: 600;
-              color: #111827;
-            }
-            
-            .product-table {
-              width: 100%;
-              border-collapse: collapse;
-              margin-bottom: 40px;
-            }
-            
-            .product-table th {
-              text-align: left;
-              padding: 15px 0;
-              border-bottom: 2px solid #E5E7EB;
-              color: #4B5563;
-              font-weight: 600;
-              font-size: 16px;
-            }
-            
-            .product-table th:last-child {
-              text-align: right;
-            }
-            
-            .product-table td {
-              padding: 20px 0;
-              border-bottom: 1px solid #E5E7EB;
-              font-size: 16px;
-              color: #111827;
-            }
-            
-            .item-name {
-              font-weight: 500;
-            }
-            
-            .item-price {
-              text-align: right;
-              font-weight: 600;
-            }
-            
-            .total-row td {
-              padding-top: 30px;
-              font-size: 20px;
-              font-weight: 700;
-              color: #111827;
-              border-bottom: none;
-            }
-            
-            .payment-method {
-              background-color: #F9FAFB;
-              border-radius: 10px;
-              padding: 20px;
-              margin-bottom: 40px;
-            }
-            
-            .payment-title {
-              font-size: 16px;
-              font-weight: 600;
-              color: #4B5563;
-              margin-bottom: 10px;
-            }
-            
-            .payment-value {
-              font-size: 18px;
-              font-weight: 600;
-              color: #111827;
-            }
-            
-            .divider {
-              height: 1px;
-              background-color: #E5E7EB;
-              margin: 40px 0;
-              position: relative;
-            }
-            
-            .divider:before {
-              content: '';
-              position: absolute;
-              left: 0;
-              top: -5px;
-              height: 10px;
-              width: 10px;
-              background-color: #E5E7EB;
-              border-radius: 50%;
-            }
-            
-            .divider:after {
-              content: '';
-              position: absolute;
-              right: 0;
-              top: -5px;
-              height: 10px;
-              width: 10px;
-              background-color: #E5E7EB;
-              border-radius: 50%;
-            }
-            
-            .footer {
-              text-align: center;
-              margin-top: 20px;
-            }
-            
-            .thank-you {
-              font-size: 24px;
-              font-weight: 700;
-              color: #2E7D32;
-              margin-bottom: 10px;
-            }
-            
-            .contact-info {
-              font-size: 14px;
-              color: #6B7280;
-              margin-bottom: 5px;
-            }
-            
-            .signature-section {
-              display: flex;
-              justify-content: space-between;
-              margin-top: 60px;
-              margin-bottom: 40px;
-              padding: 0 20px;
-            }
-            
-            .signature-box {
-              width: 45%;
-              text-align: center;
-            }
-            
-            .signature-line {
-              height: 1px;
-              background-color: #9CA3AF;
-              margin-bottom: 10px;
-            }
-            
-            .signature-name {
-              font-size: 14px;
-              font-weight: 600;
-              color: #4B5563;
-            }
-            
-            .receipt-footer {
-              background-color:rgb(45, 35, 190);
-              padding: 20px;
-              text-align: center;
-              color: white;
-              font-size: 14px;
-            }
-            
-            @media print {
-              body {
-                background-color: white;
-              }
-              
-              .receipt-container {
-                box-shadow: none;
-                border-radius: 0;
-              }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="receipt-container">
-            <div class="receipt-header">
-              <div class="logo-container">
-                <div class="logo-icon"></div>
-                <div>
-                  <div class="brand-name">TEFA APPS</div>
-                </div>
-              </div>
-              <div class="receipt-title">Bukti Transaksi</div>
-              <div class="order-number">Nomor Pesanan: ${formattedOrderNumber}</div>
-              <div class="wave-pattern"></div>
-            </div>
-            
-            <div class="receipt-content">
-              <div class="status-badge">${paymentStatus}</div>
-              
-              <div class="info-section">
-                <div class="info-column">
-                  <div class="info-item">
-                    <div class="info-label">Nama Pelanggan</div>
-                    <div class="info-value">${order.customerName || order.orderDetails?.username || '-'}</div>
-                  </div>
-                  <div class="info-item">
-                    <div class="info-label">Tanggal Transaksi</div>
-                    <div class="info-value">${formatSimpleDate(order.createdAt)}</div>
-                  </div>
-                </div>
-                <div class="info-column">
-                  ${order.orderDetails?.taskType ? `
-                  <div class="info-item">
-                    <div class="info-label">Jenis Tugas</div>
-                    <div class="info-value">${order.orderDetails.taskType}</div>
-                  </div>
-                  ` : ''}
-                  <div class="info-item">
-                    <div class="info-label">Status Pesanan</div>
-                    <div class="info-value" style="color: ${statusColor}">
-                      ${order.status === 'completed' ? 'SELESAI' : 
-                        order.status === 'pending' ? 'MENUNGGU PEMBAYARAN' : 
-                        order.status === 'processing' ? 'SEDANG DIPROSES' : 'DIBATALKAN'}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              <table class="product-table">
-                <thead>
-                  <tr>
-                    <th>Produk / Layanan</th>
-                    <th>Harga</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${itemsHtml}
-                  <tr class="total-row">
-                    <td>Total Pembayaran</td>
-                    <td class="item-price">Rp ${order.amount?.toLocaleString('id-ID') || '0'}</td>
-                  </tr>
-                </tbody>
-              </table>
-              
-              <div class="payment-method">
-                <div class="payment-title">Metode Pembayaran</div>
-                <div class="payment-value">${order.paymentMethod || 'Tunai'}</div>
-                ${order.paymentAccountNumber ? `
-                <div style="margin-top: 10px;">
-                  <div class="payment-title">Nomor Rekening</div>
-                  <div class="payment-value">${order.paymentAccountNumber}</div>
-                </div>
-                ` : ''}
-                ${order.paymentAccountHolder ? `
-                <div style="margin-top: 10px;">
-                  <div class="payment-title">Atas Nama</div>
-                  <div class="payment-value">${order.paymentAccountHolder}</div>
-                </div>
-                ` : ''}
-              </div>
-              
-              ${order.orderDetails?.notes ? `
-              <div style="margin-bottom: 40px;">
-                <div class="payment-title">Catatan</div>
-                <div style="background-color: #F9FAFB; border-radius: 10px; padding: 15px; font-size: 15px;">
-                  ${order.orderDetails.notes}
-                </div>
-              </div>
-              ` : ''}
-              
-              <div class="divider"></div>
-              
-              <div class="signature-section">
-                <div class="signature-box">
-                  <div class="signature-line"></div>
-                  <div class="signature-name">Pelanggan</div>
-                </div>
-                <div class="signature-box">
-                  <div class="signature-line"></div>
-                  <div class="signature-name">Tim Kios Digital</div>
-                </div>
-              </div>
-              
-              <div class="footer">
-                <div class="thank-you">Terima Kasih Atas Kepercayaan Anda</div>
-                <div class="contact-info">Jika ada pertanyaan, silahkan hubungi kami di WhatsApp 081574623974</div>
-                <div class="contact-info">KIOS DIGITAL © ${new Date().getFullYear()}</div>
-              </div>
-            </div>
-            
-            <div class="receipt-footer">
-              Dokumen ini adalah bukti transaksi yang sah dari TEFA 
-            </div>
-          </div>
-        </body>
-      </html>
-    `;
-
-    // Generate PDF with improved page settings
-    const { uri } = await Print.printToFileAsync({ 
-      html,
-      base64: false,
-      width: 595, // Standard A4 width in pixels at 72 DPI
-      height: 842 // Standard A4 height in pixels at 72 DPI
-    });
-    
-    // Save and share PDF with a better name
-    const pdfName = `Struk_${order.orderNumber || 'Transaksi'}_KiosDigital.pdf`;
-    const newUri = `${FileSystem.documentDirectory}${pdfName}`;
-    
-    try {
-      await FileSystem.moveAsync({ from: uri, to: newUri });
-    } catch (error) {
-      // If move fails, try copying
-      await FileSystem.copyAsync({ from: uri, to: newUri });
-    }
-    
-    if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(newUri, {
-        mimeType: 'application/pdf',
-        dialogTitle: 'Bagikan Struk Transaksi',
-        UTI: 'com.adobe.pdf'
-      });
-      return { success: true, uri: newUri };
-    } else {
-      throw new Error('Fitur berbagi tidak tersedia di perangkat Anda');
-    }
-  } catch (error) {
-    console.error('Error generating receipt PDF:', error);
-    throw error;
+const ORDER_STATUS = {
+  pending: {
+    label: 'Menunggu Pembayaran',
+    color: COLORS.warning,
+    icon: Clock,
+    bgColor: COLORS.warningLight,
+    description: 'Pesanan Anda sedang menunggu pembayaran'
+  },
+  processing: {
+    label: 'Diproses',
+    color: COLORS.secondary,
+    icon: Package,
+    bgColor: COLORS.primaryLight,
+    description: 'Pesanan Anda sedang diproses oleh tim kami'
+  },
+  approved: {
+    label: 'Selesai',
+    color: COLORS.success,
+    icon: CircleCheck,
+    bgColor: COLORS.successLight,
+    description: 'Pesanan Anda telah selesai'
+  },
+  cancelled: {
+    label: 'Dibatalkan',
+    color: COLORS.danger,
+    icon: Circle,
+    bgColor: COLORS.dangerLight,
+    description: 'Pesanan Anda telah dibatalkan'
   }
 };
 
-const OrderDetailScreen = () => {
+export default function OrderDetails() {
   const { id } = useLocalSearchParams();
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [generatingReceipt, setGeneratingReceipt] = useState(false);
-  const [error, setError] = useState(null);
+  const [generatingInvoice, setGeneratingInvoice] = useState(false);
 
   useEffect(() => {
     const fetchOrder = async () => {
-      if (!id) {
-        setError('ID pesanan tidak valid');
-        setLoading(false);
-        return;
-      }
-      
       try {
-        const docRef = doc(db, 'orders', id);
-        const docSnap = await getDoc(docRef);
-        
-        if (docSnap.exists()) {
-          setOrder({ id: docSnap.id, ...docSnap.data() });
-        } else {
-          setError('Pesanan tidak ditemukan');
+        const orderDoc = await getDoc(doc(db, 'orders', id as string));
+        if (orderDoc.exists()) {
+          setOrder({ id: orderDoc.id, ...orderDoc.data() });
         }
       } catch (error) {
-        console.error('Error getting order:', error);
-        setError('Gagal memuat data pesanan');
+        console.error('Error fetching order:', error);
       } finally {
         setLoading(false);
       }
@@ -534,499 +84,818 @@ const OrderDetailScreen = () => {
     fetchOrder();
   }, [id]);
 
-  // Fixed payment status logic to match order status
-  const getPaymentStatus = (status) => {
-    return status === 'completed' || status === 'processing' ? 'paid' : 'unpaid';
-  };
-
-  const handleWhatsAppContact = () => {
-    const phoneNumber = '6281574623974'; // Admin WhatsApp number
-    const message = `Halo Admin, saya ingin konfirmasi pesanan dengan nomor: ${order?.orderNumber || 'tidak tersedia'}`;
-    const url = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
-    
-    Linking.canOpenURL(url).then(supported => {
-      if (supported) {
-        Linking.openURL(url);
-      } else {
-        Alert.alert('Error', 'WhatsApp tidak terinstall di perangkat Anda');
-      }
-    }).catch(() => {
-      Alert.alert('Error', 'Tidak dapat membuka WhatsApp');
-    });
-  };
-
+  // Format the date
   const formatDate = (timestamp) => {
-    if (!timestamp?.seconds) return '-';
+    if (!timestamp) return 'Tidak tersedia';
+    return moment(timestamp.seconds * 1000).format('DD MMMM YYYY, HH:mm');
+  };
+
+// Replace the generateInvoiceHtml function with this improved version
+
+const generateInvoiceHtml = (order) => {
+  const orderDate = order.createdAt ? moment(order.createdAt.seconds * 1000).format('DD MMMM YYYY') : 'N/A';
+  const dueDate = order.deadline ? moment(order.deadline.seconds * 1000).format('DD MMMM YYYY') : 'N/A';
+  const invoiceDate = moment().format('DD MMMM YYYY');
+  
+  return `
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <meta charset="utf-8">
+    <title>Invoice #${order.orderNumber}</title>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+      
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      
+      body {
+        font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+        color: #1E293B;
+        background-color: #F8FAFC;
+        line-height: 1.5;
+      }
+      
+      .invoice-container {
+        max-width: 800px;
+        margin: 40px auto;
+        padding: 40px;
+        background-color: white;
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+        border-radius: 12px;
+      }
+      
+      .invoice-header {
+        display: flex;
+        justify-content: space-between;
+        padding-bottom: 24px;
+        border-bottom: 1px solid #E2E8F0;
+      }
+      
+      .logo-container {
+        display: flex;
+        flex-direction: column;
+      }
+      
+      .logo {
+        font-size: 32px;
+        font-weight: 700;
+        color: #0557B5;
+        letter-spacing: -0.5px;
+        margin-bottom: 8px;
+      }
+      
+      .tagline {
+        font-size: 14px;
+        color: #64748B;
+      }
+      
+      .company-details {
+        text-align: right;
+        font-size: 14px;
+        color: #64748B;
+        line-height: 1.6;
+      }
+      
+      .company-name {
+        font-size: 18px;
+        font-weight: 600;
+        color: #1E293B;
+        margin-bottom: 6px;
+      }
+      
+      .invoice-title {
+        font-size: 24px;
+        font-weight: 700;
+        margin: 32px 0 24px;
+        color: #0557B5;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        position: relative;
+        padding-bottom: 12px;
+      }
+      
+      .invoice-title:after {
+        content: '';
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        width: 60px;
+        height: 4px;
+        background-color: #0557B5;
+        border-radius: 2px;
+      }
+      
+      .invoice-info {
+        display: flex;
+        justify-content: space-between;
+        margin: 32px 0;
+        background-color: #F8FAFC;
+        border-radius: 8px;
+        padding: 24px;
+      }
+      
+      .invoice-to, .invoice-details {
+        font-size: 14px;
+      }
+      
+      .invoice-to p, .invoice-details p {
+        margin: 8px 0;
+        color: #64748B;
+      }
+      
+      .invoice-to strong, .invoice-details strong {
+        display: block;
+        font-size: 16px;
+        font-weight: 600;
+        color: #1E293B;
+        margin-bottom: 10px;
+      }
+      
+      .info-highlight {
+        color: #1E293B;
+        font-weight: 500;
+      }
+      
+      .status-badge {
+        display: inline-block;
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-size: 14px;
+        font-weight: 600;
+        text-transform: uppercase;
+        background-color: ${order.status === 'approved' ? '#E6F9F4' : order.status === 'pending' ? '#FFF5E6' : order.status === 'processing' ? '#E1EFFF' : '#FFECEE'};
+        color: ${order.status === 'approved' ? '#00B884' : order.status === 'pending' ? '#FF9D00' : order.status === 'processing' ? '#0557B5' : '#FF4757'};
+      }
+      
+      .items-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 32px 0;
+      }
+      
+      .items-table th {
+        background-color: #F1F5F9;
+        color: #1E293B;
+        font-weight: 600;
+        text-align: left;
+        padding: 14px;
+        border-radius: 6px 6px 0 0;
+      }
+      
+      .items-table td {
+        padding: 14px;
+        border-bottom: 1px solid #E2E8F0;
+      }
+      
+      .items-table tr:last-child td {
+        border-bottom: none;
+      }
+      
+      .summary {
+        margin-top: 32px;
+        margin-left: auto;
+        width: 35%;
+      }
+      
+      .summary-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 10px 0;
+        border-bottom: 1px solid #E2E8F0;
+      }
+      
+      .summary-row:last-child {
+        border-bottom: none;
+        padding-top: 16px;
+      }
+      
+      .summary-label {
+        font-weight: 500;
+      }
+      
+      .total {
+        font-size: 18px;
+        font-weight: 700;
+        color: #0557B5;
+      }
+      
+      .notes {
+        margin-top: 40px;
+        padding: 24px;
+        background-color: #F8FAFC;
+        border-radius: 8px;
+        font-size: 14px;
+        color: #64748B;
+      }
+      
+      .notes h3 {
+        color: #1E293B;
+        margin-bottom: 12px;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      
+      .payment-instructions {
+        margin-top: 32px;
+        padding: 24px;
+        background-color: #E1EFFF;
+        border-radius: 8px;
+        font-size: 14px;
+      }
+      
+      .payment-instructions h3 {
+        color: #0557B5;
+        margin-bottom: 12px;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      
+      .footer {
+        margin-top: 48px;
+        text-align: center;
+        font-size: 14px;
+        color: #64748B;
+        border-top: 1px solid #E2E8F0;
+        padding-top: 32px;
+      }
+      
+      .footer-logo {
+        font-size: 20px;
+        font-weight: 700;
+        color: #0557B5;
+        margin-bottom: 12px;
+      }
+      
+      .footer p {
+        margin: 6px 0;
+      }
+      
+      .thank-you {
+        font-size: 18px;
+        font-weight: 600;
+        color: #0557B5;
+        margin-bottom: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="invoice-container">
+      <div class="invoice-header">
+        <div class="logo-container">
+          <div class="logo">TEFA APPS</div>
+          <div class="tagline">Teaching Factory Application</div>
+        </div>
+        <div class="company-details">
+          <div class="company-name">TEFA ORGANIZATION</div>
+          <p>Jln. Raya Pebayuran, Kab Bekasi<br>
+          Jawa Barat, Indonesia<br>
+          haris.febriyan.stmik@krw.horizon.ac.id<br>
+          +62 815 7462 3974</p>
+        </div>
+      </div>
+      
+      <h1 class="invoice-title">INVOICE #${order.orderNumber}</h1>
+      
+      <div class="invoice-info">
+        <div class="invoice-to">
+          <strong>Tagihan Untuk:</strong>
+          <p>${order.customerName || 'N/A'}</p>
+          <p>${order.customerEmail || 'N/A'}</p>
+        </div>
+        <div class="invoice-details">
+          <strong>Detail Invoice:</strong>
+          <p><span>Nomor Invoice:</span> <span class="info-highlight">${order.orderNumber}</span></p>
+          <p><span>Tanggal Invoice:</span> <span class="info-highlight">${invoiceDate}</span></p>
+          <p><span>Tanggal Pesanan:</span> <span class="info-highlight">${orderDate}</span></p>
+          <p><span>Jatuh Tempo:</span> <span class="info-highlight">${dueDate}</span></p>
+          <p><span>Status:</span> <span class="status-badge">${ORDER_STATUS[order.status]?.label || 'N/A'}</span></p>
+        </div>
+      </div>
+      
+      <table class="items-table">
+        <thead>
+          <tr>
+            <th style="width: 60%">Deskripsi</th>
+            <th style="width: 15%">Jumlah</th>
+            <th style="width: 25%">Harga</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <div style="font-weight: 600;">${order.productName || 'Produk/Layanan'}</div>
+              <div style="color: #64748B; font-size: 14px; margin-top: 4px;">${order.notes || 'Pesanan TEFA'}</div>
+            </td>
+            <td>1</td>
+            <td>Rp ${order.amount?.toLocaleString('id-ID') || '0'}</td>
+          </tr>
+        </tbody>
+      </table>
+      
+      <div class="summary">
+        <div class="summary-row">
+          <span class="summary-label">Subtotal:</span>
+          <span>Rp ${order.amount?.toLocaleString('id-ID') || '0'}</span>
+        </div>
+        <div class="summary-row">
+          <span class="summary-label">Pajak (0%):</span>
+          <span>Rp 0</span>
+        </div>
+        <div class="summary-row">
+          <span class="summary-label total">Total:</span>
+          <span class="total">Rp ${order.amount?.toLocaleString('id-ID') || '0'}</span>
+        </div>
+      </div>
+      
+      <div class="payment-instructions">
+        <h3>Instruksi Pembayaran</h3>
+        <p>Silakan lakukan pembayaran ke rekening berikut:</p>
+        <p><strong>Bank:</strong> ${order.paymentMethod || 'Bank BCA'}</p>
+        <p><strong>Nomor Rekening:</strong> ${order.paymentAccountNumber || '123456789'}</p>
+        <p><strong>Atas Nama:</strong> ${order.paymentAccountHolder || 'TEFA Organization'}</p>
+        <p>Cantumkan nomor invoice <strong>#${order.orderNumber}</strong> pada keterangan transfer</p>
+      </div>
+      
+      <div class="notes">
+        <h3>Catatan</h3>
+        <p>${order.notes || 'Tidak ada catatan tambahan untuk pesanan ini.'}</p>
+      </div>
+      
+      <div class="footer">
+        <div class="thank-you">Terima Kasih Atas Kepercayaan Anda</div>
+        <div class="footer-logo">TEFA APPS</div>
+        <p>Jika ada pertanyaan tentang invoice ini, silakan hubungi kami:</p>
+        <p>haris.febriyan.stmik@krw.horizon.ac.id | +62 815 7462 3974</p>
+        <p>© ${new Date().getFullYear()} TEFA Organization. All rights reserved.</p>
+      </div>
+    </div>
+  </body>
+  </html>
+  `;
+};
+
+  // Handle invoice download
+  const handleDownloadInvoice = async () => {
+    if (!order) return;
     
     try {
-      return new Date(timestamp.seconds * 1000).toLocaleDateString('id-ID', {
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
+      setGeneratingInvoice(true);
+      
+      // Generate HTML for the invoice
+      const htmlContent = generateInvoiceHtml(order);
+      
+      // Create a PDF from the HTML
+      const { uri } = await Print.printToFileAsync({
+        html: htmlContent,
+        base64: false
       });
+      
+      // Generate a better filename
+      const invoiceFileName = `Invoice_${order.orderNumber || order.id}_${moment().format('YYYYMMDD')}.pdf`;
+      const invoiceFilePath = `${FileSystem.documentDirectory}${invoiceFileName}`;
+      
+      // Copy the file to a location with a better name
+      await FileSystem.copyAsync({
+        from: uri,
+        to: invoiceFilePath
+      });
+      
+      // Check if sharing is available
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(invoiceFilePath, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Download Invoice',
+          UTI: 'com.adobe.pdf'
+        });
+      } else {
+        Alert.alert('Error', 'Sharing is not available on your device');
+      }
     } catch (error) {
-      console.error('Error formatting date:', error);
-      return '-';
+      console.error('Error generating invoice:', error);
+      Alert.alert('Error', 'Terjadi kesalahan saat mengunduh invoice');
+    } finally {
+      setGeneratingInvoice(false);
     }
   };
 
-  const handleGenerateReceipt = async () => {
-    if (!order) {
-      Alert.alert('Error', 'Data pesanan tidak tersedia');
-      return;
-    }
-    
-    try {
-      setGeneratingReceipt(true);
-      await generateOrderReceipt(order);
-    } catch (error) {
-      Alert.alert('Error', 'Gagal membuat struk: ' + (error.message || 'Terjadi kesalahan'));
-    } finally {
-      setGeneratingReceipt(false);
-    }
+  // Handle WhatsApp contact
+  const handleWhatsAppContact = () => {
+    const orderNumber = order.orderNumber || order.id || '12345';
+    const contactNumber = order.contactNumber || '+6281574623974';
+    const whatsappURL = `https://wa.me/${contactNumber}?text=Saya%20mau%20konfirmasi%20kendala%20pesanan%20saya%20Kak%2C%20Order%20Number%3A%20${orderNumber}`;
+    router.push(whatsappURL);
   };
 
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4F46E5" />
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={styles.loadingText}>Memuat detail pesanan...</Text>
       </View>
     );
   }
 
-  if (error || !order) {
+  if (!order) {
     return (
-      <View style={styles.emptyContainer}>
-        <MaterialIcons name="error-outline" size={48} color="#9CA3AF" />
-        <Text style={styles.emptyText}>{error || 'Pesanan tidak ditemukan'}</Text>
-        <TouchableOpacity 
-          style={styles.backButtonEmpty}
+      <View style={styles.errorContainer}>
+        <Circle size={48} color={COLORS.danger} />
+        <Text style={styles.errorTitle}>Pesanan tidak ditemukan</Text>
+        <Text style={styles.errorText}>Maaf, pesanan yang Anda cari tidak tersedia</Text>
+        <TouchableOpacity
+          style={styles.backButton}
           onPress={() => router.back()}
         >
-          <Text style={styles.backButtonEmptyText}>Kembali</Text>
+          <Text style={styles.backButtonText}>Kembali</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
-  // Payment status using updated logic
-  const paymentStatus = getPaymentStatus(order.status);
-  const isPaid = paymentStatus === 'paid';
-  
-  const statusColor = 
-    order.status === 'completed' ? '#10B981' : 
-    order.status === 'pending' ? '#F59E0B' : 
-    order.status === 'processing' ? '#3B82F6' : 
-    '#EF4444';
-
-  const statusIcon = 
-    order.status === 'completed' ? 'check-circle' : 
-    order.status === 'pending' ? 'clock' : 
-    order.status === 'processing' ? 'progress-clock' : 
-    'close-circle';
+  const status = ORDER_STATUS[order.status] || ORDER_STATUS.pending;
+  const StatusIcon = status.icon;
 
   return (
-    <ScrollView style={styles.container}>
+    <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <AntDesign name="arrowleft" size={24} color="#333" />
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => router.back()}
+        >
+          <ArrowLeft color={COLORS.white} size={24} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Detail Pesanan</Text>
-        <TouchableOpacity 
-          onPress={handleGenerateReceipt} 
-          disabled={generatingReceipt}
-          style={styles.receiptButton}
-        >
-          {generatingReceipt ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <Feather name="file-text" size={20} color="#fff" />
-          )}
-        </TouchableOpacity>
+        <View style={{ width: 24 }} />
       </View>
-      
-      <View style={styles.orderCard}>
-        <View style={styles.orderHeader}>
-          <View>
-            <Text style={styles.orderNumberLabel}>Nomor Pesanan</Text>
-            <Text style={styles.orderNumber}>{order.orderNumber || '-'}</Text>
+
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <Animatable.View 
+          animation="fadeInDown" 
+          style={[styles.statusCard, { backgroundColor: status.bgColor }]}
+        >
+          <StatusIcon size={24} color={status.color} />
+          <View style={styles.statusInfo}>
+            <Text style={[styles.statusText, { color: status.color }]}>{status.label}</Text>
+            <Text style={styles.statusDescription}>{status.description}</Text>
           </View>
-          <View style={[
-            styles.statusBadge, 
-            { backgroundColor: isPaid ? '#ECFDF5' : '#FEF2F2' }
-          ]}>
-            <Text style={[styles.statusText, { color: isPaid ? '#10B981' : '#EF4444' }]}>
-              {isPaid ? 'LUNAS' : 'BELUM LUNAS'}
-            </Text>
-          </View>
-        </View>
-        
-        <View style={styles.statusContainer}>
-          <MaterialCommunityIcons name={statusIcon} size={24} color={statusColor} />
-          <View style={styles.statusTextContainer}>
-            <Text style={[styles.statusIndicatorText, {color: statusColor}]}>
-              {order.status === 'completed' ? 'PESANAN SELESAI' : 
-               order.status === 'pending' ? 'MENUNGGU PEMBAYARAN' : 
-               order.status === 'processing' ? 'SEDANG DIPROSES' :
-               order.status === 'canceled' ? 'PESANAN DIBATALKAN' : 'PESANAN GAGAL'}
-            </Text>
-            <Text style={styles.statusDate}>
-              {formatDate(order.createdAt)}
-            </Text>
-          </View>
-        </View>
-        
-        <View style={styles.divider} />
-        
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <MaterialIcons name="description" size={22} color="#2E7D32" />
-            <Text style={styles.sectionTitle}>Detail Layanan</Text>
-          </View>
-          
-          <View style={styles.infoCard}>
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Nama Layanan</Text>
-              <Text style={styles.detailValue}>{order.productName || '-'}</Text>
-            </View>
-            
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Nama Lengkap</Text>
-              <Text style={styles.detailValue}>{order.orderDetails?.username || '-'}</Text>
-            </View>
-            
-            {order.orderDetails?.taskType && (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Jenis Tugas</Text>
-                <Text style={styles.detailValue}>{order.orderDetails.taskType}</Text>
+        </Animatable.View>
+
+        <Animatable.View animation="fadeInUp" delay={200}>
+          {/* Order Information */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Informasi Pesanan</Text>
+            <View style={styles.infoRow}>
+              <View style={styles.infoIcon}>
+                <Package size={20} color={COLORS.primary} />
               </View>
-            )}
-            
-            {order.orderDetails?.notes && (
-              <View style={styles.notesContainer}>
-                <Text style={styles.notesLabel}>Catatan:</Text>
-                <Text style={styles.notesValue}>
-                  {order.orderDetails.notes}
+              <View style={styles.infoContent}>
+                <Text style={styles.infoLabel}> Nama Produk</Text>
+                <Text style={styles.infoValue}>{order.productName || '(Tidak tersedia)'}</Text>
+              </View>
+            </View>
+            <View style={styles.infoRow}>
+              <View style={styles.infoIcon}>
+                <Package size={20} color={COLORS.primary} />
+              </View>
+              <View style={styles.infoContent}>
+                <Text style={styles.infoLabel}>Nomor Pesanan</Text>
+                <Text style={styles.infoValue}>{order.orderNumber || '(Tidak tersedia)'}</Text>
+              </View>
+            </View>
+            <View style={styles.infoRow}>
+              <View style={styles.infoIcon}>
+                <Calendar size={20} color={COLORS.primary} />
+              </View>
+              <View style={styles.infoContent}>
+                <Text style={styles.infoLabel}>Tanggal Pesanan</Text>
+                <Text style={styles.infoValue}>
+                  {formatDate(order.createdAt)}
                 </Text>
               </View>
-            )}
-          </View>
-        </View>
-        
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <MaterialIcons name="payment" size={22} color="#2E7D32" />
-            <Text style={styles.sectionTitle}>Detail Pembayaran</Text>
-          </View>
-          
-          <View style={styles.infoCard}>
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Metode Pembayaran</Text>
-              <Text style={styles.detailValue}>{order.paymentMethod || 'Tunai'}</Text>
             </View>
-            
+
+            <View style={styles.infoRow}>
+              <View style={styles.infoIcon}>
+                <Calendar size={20} color={COLORS.primary} />
+              </View>
+              <View style={styles.infoContent}>
+                <Text style={styles.infoLabel}>Deadline</Text>
+                <Text style={styles.infoValue}>
+                  {formatDate(order.deadline)}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.infoRow}>
+              <View style={styles.infoIcon}>
+                <DollarSign size={20} color={COLORS.primary} />
+              </View>
+              <View style={styles.infoContent}>
+                <Text style={styles.infoLabel}>Total Pembayaran</Text>
+                <Text style={styles.infoValue}>Rp {order.amount?.toLocaleString('id-ID')}</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Customer Information */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Informasi Pelanggan</Text>
+            <View style={styles.infoRow}>
+              <View style={styles.infoIcon}>
+                <User size={20} color={COLORS.primary} />
+              </View>
+              <View style={styles.infoContent}>
+                <Text style={styles.infoLabel}>Nama</Text>
+                <Text style={styles.infoValue}>{order.customerName || '(Tidak tersedia)'}</Text>
+              </View>
+            </View>
+
+            <View style={styles.infoRow}>
+              <View style={styles.infoIcon}>
+                <Mail size={20} color={COLORS.primary} />
+              </View>
+              <View style={styles.infoContent}>
+                <Text style={styles.infoLabel}>Email</Text>
+                <Text style={styles.infoValue}>{order.customerEmail || '(Tidak tersedia)'}</Text>
+              </View>
+            </View>
+          </View>
+         
+          {/* Payment Information */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Informasi Pembayaran</Text>
+            <View style={styles.infoRow}>
+              <View style={styles.infoIcon}>
+                <CreditCard size={20} color={COLORS.primary} />
+              </View>
+              <View style={styles.infoContent}>
+                <Text style={styles.infoLabel}>Metode Pembayaran</Text>
+                <Text style={styles.infoValue}>{order.paymentMethod || '(Tidak tersedia)'}</Text>
+              </View>
+            </View>
+
             {order.paymentAccountNumber && (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Nomor Rekening</Text>
-                <Text style={styles.detailValue}>{order.paymentAccountNumber}</Text>
+              <View style={styles.infoRow}>
+                <View style={styles.infoIcon}>
+                  <CreditCard size={20} color={COLORS.primary} />
+                </View>
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoLabel}>Nomor Rekening</Text>
+                  <Text style={styles.infoValue}>{order.paymentAccountNumber}</Text>
+                </View>
               </View>
             )}
-            
+
             {order.paymentAccountHolder && (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Atas Nama</Text>
-                <Text style={styles.detailValue}>{order.paymentAccountHolder}</Text>
+              <View style={styles.infoRow}>
+                <View style={styles.infoIcon}>
+                  <User size={20} color={COLORS.primary} />
+                </View>
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoLabel}>Atas Nama</Text>
+                  <Text style={styles.infoValue}>{order.paymentAccountHolder}</Text>
+                </View>
               </View>
             )}
-            
-            <View style={styles.priceRow}>
-              <Text style={styles.priceLabel}>Total Pembayaran</Text>
-              <Text style={styles.priceValue}>
-                Rp {order.amount?.toLocaleString('id-ID') || '0'}
-              </Text>
-            </View>
           </View>
-        </View>
-        
-        {/* Show "Cetak Struk" button for all orders */}
-        <TouchableOpacity 
-          style={[styles.printButton, { backgroundColor: '#2E7D32' }]}
-          onPress={handleGenerateReceipt}
-          disabled={generatingReceipt}
+
+          {/* Invoice Information - Only show when status is approved */}
+         
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Informasi Invoice</Text>
+              <View style={styles.infoRow}>
+                <View style={styles.infoIcon}>
+                  <FileText size={20} color={COLORS.primary} />
+                </View>
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoLabel}>Nomor Invoice</Text>
+                  <Text style={styles.infoValue}>{order.orderNumber || order.id}</Text>
+                </View>
+              </View>
+              <View style={styles.infoRow}>
+                <View style={styles.infoIcon}>
+                  <Calendar size={20} color={COLORS.primary} />
+                </View>
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoLabel}>Tanggal Invoice</Text>
+                  <Text style={styles.infoValue}>{moment().format('DD MMMM YYYY')}</Text>
+                </View>
+              </View>
+              <TouchableOpacity 
+                style={styles.downloadButton}
+                onPress={handleDownloadInvoice}
+                disabled={generatingInvoice}
+              >
+                {generatingInvoice ? (
+                  <ActivityIndicator size="small" color={COLORS.white} />
+                ) : (
+                  <>
+                    <Download size={20} color={COLORS.white} />
+                    <Text style={styles.downloadButtonText}>Download Invoice</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          
+
+          {/* Notes Section */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Catatan Pesanan</Text>
+            <Text style={styles.notes}>
+              {order.notes || 'Tidak ada catatan untuk pesanan ini'}
+            </Text>
+          </View>
+        </Animatable.View>
+      </ScrollView>
+
+      <Animatable.View animation="fadeInUp" style={styles.footer}>
+        <TouchableOpacity
+          style={[styles.footerButton, { backgroundColor: COLORS.primaryLight }]}
+          onPress={handleWhatsAppContact}
         >
-          {generatingReceipt ? (
-            <ActivityIndicator size="small" color="white" />
-          ) : (
-            <>
-              <MaterialIcons name="receipt" size={20} color="white" />
-              <Text style={styles.buttonText}>Cetak Struk</Text>
-            </>
-          )}
+          <MessageSquare size={20} color={COLORS.primary} />
+          <Text style={[styles.footerButtonText, { color: COLORS.primary }]}>
+            Hubungi Admin
+          </Text>
         </TouchableOpacity>
-        
-        {/* Show "Tanya Admin" button for paid orders in processing state */}
-        {order.status === 'processing' && (
-          <TouchableOpacity 
-            style={[styles.contactButton, { backgroundColor: '#4F46E5' }]}
-            onPress={handleWhatsAppContact}
-          >
-            <FontAwesome 
-              name="question-circle" 
-              size={20} 
-              color="white" 
-            />
-            <Text style={styles.contactButtonText}>
-              Tanya Admin
-            </Text>
-          </TouchableOpacity>
-        )}
-        
-        {/* Show WhatsApp contact button for pending orders */}
-        {order.status === 'pending' && (
-          <TouchableOpacity 
-            style={[styles.contactButton, { backgroundColor: '#25D366' }]}
-            onPress={handleWhatsAppContact}
-          >
-            <FontAwesome 
-              name="whatsapp" 
-              size={20} 
-              color="white" 
-            />
-            <Text style={styles.contactButtonText}>
-              Konfirmasi Pembayaran
-            </Text>
-          </TouchableOpacity>
-        )}
-      </View>
-    </ScrollView>
+
+      </Animatable.View>
+    </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: COLORS.neutral,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 20,
+    paddingTop: Platform.OS === 'ios' ? 60 : 20,
+    backgroundColor: COLORS.headerBlue,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: COLORS.white,
+  },
+  backBtn: {
+    padding: 8,
+    borderRadius: 8,
+  },
+  content: {
+    flex: 1,
+    padding: 16,
+  },
+  statusCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 24,
+  },
+  statusInfo: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  statusText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  statusDescription: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+  },
+  section: {
+    backgroundColor: COLORS.white,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    elevation: 2,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: COLORS.text,
+    marginBottom: 16,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  infoIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: COLORS.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  infoContent: {
+    flex: 1,
+  },
+  infoLabel: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    marginBottom: 4,
+  },
+  infoValue: {
+    fontSize: 16,
+    color: COLORS.text,
+    fontWeight: '600',
+  },
+  notes: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    lineHeight: 20,
+  },
+  footer: {
+    flexDirection: 'row',
+    padding: 16,
+    backgroundColor: COLORS.white,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.neutralDark,
+  },
+  footerButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 8,
+    marginHorizontal: 4,
+  },
+  footerButtonText: {
+    marginLeft: 8,
+    fontSize: 14,
+    fontWeight: '600',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F3F4F6',
   },
-  emptyContainer: {
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: COLORS.textSecondary,
+  },
+  errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
-    backgroundColor: '#F3F4F6',
   },
-  emptyText: {
-    fontSize: 16,
-    color: '#6B7280',
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: COLORS.text,
     marginTop: 16,
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  backButtonEmpty: {
-    backgroundColor: '#4F46E5',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-  },
-  backButtonEmptyText: {
-    color: 'white',
-    fontWeight: '600',
-    fontSize: 16,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#F9FAFB',
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-  },
-  backButton: {
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  receiptButton: {
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: 'white',
-  },
-  orderCard: {
-    backgroundColor: 'white',
-    borderRadius: 16,
-    margin: 16,
-    padding: 20,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-  },
-  orderHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 20,
-  },
-  orderNumberLabel: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginBottom: 4,
-  },
-  orderNumber: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#2E7D32',
-  },
-  statusBadge: {
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  statusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
-  },
-  statusTextContainer: {
-    marginLeft: 12,
-    flex: 1,
-  },
-  statusIndicatorText: {
-    fontWeight: '700',
-    fontSize: 14,
-    marginBottom: 4,
-  },
-  statusDate: {
-    fontSize: 12,
-    color: '#6B7280',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#E5E7EB',
-    marginBottom: 24,
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
-    marginLeft: 8,
-  },
-  infoCard: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 12,
-    padding: 16,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  detailLabel: {
-    fontSize: 14,
-    color: '#6B7280',
-  },
-  detailValue: {
-    fontSize: 14,
-    color: '#111827',
-    fontWeight: '600',
-    textAlign: 'right',
-    flex: 1,
-  },
-  notesContainer: {
-    marginTop: 16,
-  },
-  notesLabel: {
-    fontSize: 14,
-    color: '#6B7280',
     marginBottom: 8,
   },
-  notesValue: {
-    fontSize: 14,
-    color: '#111827',
-    fontWeight: '500',
-    backgroundColor: 'white',
+  errorText: {
+    fontSize: 16,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  backButton: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
     borderRadius: 8,
+  },
+  backButtonText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  downloadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.primary,
     padding: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  priceRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 16,
+    borderRadius: 8,
     marginTop: 8,
   },
-  priceLabel: {
+  downloadButtonText: {
+    color: COLORS.white,
     fontSize: 16,
-    fontWeight: '600',
-    color: '#111827',
-  },
-  priceValue: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#2E7D32',
-  },
-  printButton: {
-    borderRadius: 12,
-    padding: 16,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  contactButton: {
-    borderRadius: 12,
-    padding: 16,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  contactButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  buttonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
+    fontWeight: 'bold',
     marginLeft: 8,
   },
 });
-
-export default OrderDetailScreen;
